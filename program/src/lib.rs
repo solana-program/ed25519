@@ -1,10 +1,38 @@
-//! Solana program that re-verifies Ed25519 signatures on-chain.
+//! Instructions and on-chain verification for the [`ed25519` native program][np].
 //!
-//! The native [`ed25519` precompile] validates signatures at the transaction
-//! level. This program performs the same strict signature check from SBF so
-//! other programs can CPI into it and trust the explicit pass/fail result.
+//! [np]: https://solana.com/docs/core/programs/precompiles#verify-ed25519-signatures
 //!
-//! # Instruction format
+//! This crate contains the on-chain processor that re-verifies Ed25519
+//! signatures inside a Solana program, and re-exports the shared Ed25519
+//! instruction types and client-side builders from the upstream SDK crate.
+//!
+//! _This crate exposes low-level cryptographic building blocks. Read this
+//! documentation carefully and validate instruction layout assumptions in any
+//! program that depends on signature verification for safety._
+//!
+//! The native ed25519 precompile validates signatures at the transaction level.
+//! The shared API re-exported by this crate mirrors that native instruction
+//! format so clients can build compatible instructions, while this crate's
+//! processor lets other programs CPI into a verifier and trust the explicit
+//! pass/fail result.
+//!
+//! # Current crate structure
+//!
+//! This crate intentionally separates the shared client-facing wire definitions
+//! from the on-chain verifier implementation:
+//!
+//! - The re-exported SDK surface provides types like
+//!   [`Ed25519SignatureOffsets`], layout constants, and instruction builders.
+//! - The `processor` module contains the on-chain verification logic.
+//! - The `instruction_data` module contains parser helpers for the 14-byte
+//!   offset records and instruction payload slices.
+//! - The `scalar` module contains strict scalar arithmetic helpers used to
+//!   match `ed25519_dalek::VerifyingKey::verify_strict`.
+//!
+//! The crate root remains thin and contains only documentation, re-exports, and
+//! the Solana entry point.
+//!
+//! # Instruction data layout
 //!
 //! The instruction data mirrors the layout consumed by the native ed25519
 //! precompile:
@@ -16,26 +44,44 @@
 //! [public key || signature || message ...]     (payload, order flexible)
 //! ```
 //!
-//! All data references inside `Ed25519SignatureOffsets` must use the native
-//! "current instruction" sentinel (`u16::MAX`); cross-instruction references
-//! are rejected.
+//! The payload bytes can be arranged however the client wants, as long as each
+//! [`Ed25519SignatureOffsets`] record points at the correct byte ranges.
 //!
-//! [`ed25519` precompile]: https://docs.solanalabs.com/runtime/programs#ed25519-program
-
-use {
-    instruction_data::{get_signature_fields, iter_signature_offsets, SignatureFields},
-    solana_account_info::AccountInfo,
-    solana_curve25519::{
-        edwards::{multiply_edwards, multiscalar_multiply_edwards, PodEdwardsPoint},
-        scalar::PodScalar,
-    },
-    solana_program_entrypoint::ProgramResult,
-    solana_program_error::ProgramError,
-    solana_pubkey::Pubkey,
-};
+//! All data references inside [`Ed25519SignatureOffsets`] must use the native
+//! "current instruction" sentinel (`u16::MAX`) when processed by this crate;
+//! cross-instruction references are rejected.
+//!
+//! # Strict verification behavior
+//!
+//! This crate intentionally matches
+//! `ed25519_dalek::VerifyingKey::verify_strict` rather than a looser Ed25519
+//! verifier. Verification fails if any of the following are true:
+//!
+//! - The signature scalar `S` is non-canonical.
+//! - The signature point `R` is a small-order point.
+//! - The compressed public key is invalid.
+//! - The public key is a small-order point.
+//! - The signature equation `S*B - H(R || A || M)*A == R` does not hold.
+//! - The instruction data is empty, truncated, or contains out-of-bounds
+//!   offsets.
+//! - Any offset record references an instruction index other than `u16::MAX`.
+//!
+//! # Additional security considerations
+//!
+//! Most programs should be conservative about what instruction shapes they
+//! accept. Desirable checks often include:
+//!
+//! - The number of signatures is exactly what the program expects.
+//! - Every instruction index field is exactly where the program expects the
+//!   signature material to live.
+//! - The signed messages are domain-separated and cannot be replayed across
+//!   unrelated instructions or protocols.
+//! - The verifier program ID is the expected one, so a malicious program cannot
+//!   fake a successful verification path.
 
 mod instruction;
 mod instruction_data;
+mod processor;
 mod scalar;
 
 #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
@@ -52,117 +98,61 @@ pub use instruction::{
     Ed25519SignatureOffsets, CURRENT_INSTRUCTION_INDEX, DATA_START, PUBKEY_SERIALIZED_SIZE,
     SIGNATURE_OFFSETS_SERIALIZED_SIZE, SIGNATURE_OFFSETS_START, SIGNATURE_SERIALIZED_SIZE,
 };
-
-#[cfg(not(feature = "no-entrypoint"))]
-solana_program_entrypoint::entrypoint!(process_instruction);
+pub use processor::process_instruction;
 
 #[cfg(target_os = "solana")]
-#[no_mangle]
+use solana_program_error::ProgramError;
+
+/// Program entry point for the version 2 instruction-data pointer interface.
+///
+/// # Safety
+///
+/// The Solana runtime must pass `input` as the serialized accounts buffer and
+/// `instruction_data_addr` as the pointer to instruction data with its length
+/// stored in the preceding 8 bytes.
+#[cfg(all(target_os = "solana", not(feature = "no-entrypoint")))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn entrypoint(input: *mut u8, instruction_data_addr: *const u8) -> u64 {
+    let result = unsafe {
+        let num_accounts = *(input as *const u64);
+        if num_accounts != 0 {
+            Err(ProgramError::InvalidArgument)
+        } else {
+            let Some(instruction_data_len_addr) =
+                (instruction_data_addr as usize).checked_sub(core::mem::size_of::<u64>())
+            else {
+                return ProgramError::InvalidInstructionData.into();
+            };
+            let instruction_data_len = *(instruction_data_len_addr as *const u64);
+            let instruction_data =
+                core::slice::from_raw_parts(instruction_data_addr, instruction_data_len as usize);
+            processor::verify_ed25519_instruction(instruction_data)
+        }
+    };
+
+    match result {
+        Ok(()) => solana_program_entrypoint::SUCCESS,
+        Err(error) => error.into(),
+    }
+}
+
+#[cfg(not(feature = "no-entrypoint"))]
+solana_program_entrypoint::custom_heap_default!();
+#[cfg(not(feature = "no-entrypoint"))]
+solana_program_entrypoint::custom_panic_default!();
+
+#[cfg(all(target_os = "solana", not(feature = "no-entrypoint")))]
+#[unsafe(no_mangle)]
 pub extern "C" fn abort() -> ! {
-    loop {}
-}
-
-const ED25519_BASEPOINT_COMPRESSED: PodEdwardsPoint = PodEdwardsPoint([
-    0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-    0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-]);
-const EDWARDS_IDENTITY_COMPRESSED: PodEdwardsPoint = PodEdwardsPoint([
-    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-]);
-const EIGHT_SCALAR: PodScalar = PodScalar([
-    0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-]);
-
-/// Returns `true` when every offset field references the current instruction.
-fn references_current_instruction(offsets: &Ed25519SignatureOffsets) -> bool {
-    offsets.signature_instruction_index == CURRENT_INSTRUCTION_INDEX
-        && offsets.public_key_instruction_index == CURRENT_INSTRUCTION_INDEX
-        && offsets.message_instruction_index == CURRENT_INSTRUCTION_INDEX
-}
-
-/// Parses `instruction_data` and verifies every ed25519 signature it describes.
-fn verify_ed25519_instruction(instruction_data: &[u8]) -> ProgramResult {
-    for offsets in iter_signature_offsets(instruction_data)? {
-        verify_signature(instruction_data, &offsets?)?;
+    let message = "abort";
+    let file = file!();
+    unsafe {
+        solana_program_entrypoint::__log(message.as_ptr(), message.len() as u64);
+        solana_program_entrypoint::__panic(
+            file.as_ptr(),
+            file.len() as u64,
+            line!() as u64,
+            column!() as u64,
+        )
     }
-
-    Ok(())
-}
-
-/// Program entry point.
-///
-/// Expects no accounts and instruction data in the ed25519 precompile format.
-pub fn process_instruction(
-    _program_id: &Pubkey,
-    accounts: &[AccountInfo],
-    instruction_data: &[u8],
-) -> ProgramResult {
-    if !accounts.is_empty() {
-        return Err(ProgramError::InvalidArgument);
-    }
-
-    verify_ed25519_instruction(instruction_data)
-}
-
-/// Validates a single signature entry described by `offsets`.
-fn verify_signature(instruction_data: &[u8], offsets: &Ed25519SignatureOffsets) -> ProgramResult {
-    if !references_current_instruction(offsets) {
-        return Err(ProgramError::InvalidInstructionData);
-    }
-
-    let fields = get_signature_fields(instruction_data, offsets)?;
-    verify_signature_fields(&fields)
-}
-
-/// Performs strict Ed25519 verification for one entry.
-///
-/// This matches `ed25519_dalek::VerifyingKey::verify_strict`:
-/// canonical `S`, non-small-order `R`, non-small-order public key `A`, and
-/// `S*B - H(R || A || M)*A == R`.
-fn verify_signature_fields(fields: &SignatureFields) -> ProgramResult {
-    let r_bytes: &[u8; 32] = fields.signature[..32]
-        .try_into()
-        .map_err(|_| ProgramError::InvalidArgument)?;
-    let s_bytes: &[u8; 32] = fields.signature[32..]
-        .try_into()
-        .map_err(|_| ProgramError::InvalidArgument)?;
-    if !scalar::is_canonical_scalar(s_bytes) {
-        return Err(ProgramError::InvalidArgument);
-    }
-
-    let r_point = PodEdwardsPoint(*r_bytes);
-    reject_small_order(&r_point)?;
-
-    let public_key_point = PodEdwardsPoint(*fields.public_key);
-    reject_small_order(&public_key_point)?;
-
-    let challenge = compute_challenge(r_bytes, fields.public_key, fields.message);
-    let minus_challenge = scalar::negate(&challenge);
-    let expected_r = multiscalar_multiply_edwards(
-        &[PodScalar(*s_bytes), PodScalar(minus_challenge)],
-        &[ED25519_BASEPOINT_COMPRESSED, public_key_point],
-    )
-    .ok_or(ProgramError::InvalidArgument)?;
-
-    if expected_r.0 != r_point.0 {
-        return Err(ProgramError::InvalidArgument);
-    }
-
-    Ok(())
-}
-
-fn reject_small_order(point: &PodEdwardsPoint) -> ProgramResult {
-    let cofactored = multiply_edwards(&EIGHT_SCALAR, point).ok_or(ProgramError::InvalidArgument)?;
-    if cofactored == EDWARDS_IDENTITY_COMPRESSED {
-        return Err(ProgramError::InvalidArgument);
-    }
-
-    Ok(())
-}
-
-fn compute_challenge(signature_r: &[u8; 32], public_key: &[u8; 32], message: &[u8]) -> [u8; 32] {
-    let digest = solana_sha512_hasher::hashv(&[signature_r, public_key, message]).to_bytes();
-    scalar::reduce_wide(&digest)
 }

@@ -66,7 +66,7 @@ pub fn sign_message(
 ///
 /// # Panics
 ///
-/// Panics if `offsets.len()` cannot fit in the native precompile's one-byte
+/// Panics if `offsets.len()` cannot fit in the native verifier's one-byte
 /// signature count field.
 pub fn offsets_to_ed25519_instruction(offsets: &[Ed25519SignatureOffsets]) -> Instruction {
     try_offsets_to_ed25519_instruction(offsets).expect("invalid ed25519 instruction offsets")
@@ -79,7 +79,7 @@ pub fn offsets_to_ed25519_instruction(offsets: &[Ed25519SignatureOffsets]) -> In
 /// Encode just the signature offsets in a single ed25519 instruction with
 /// checked inputs.
 ///
-/// Returns an error if `offsets.len()` cannot fit in the native precompile's
+/// Returns an error if `offsets.len()` cannot fit in the native verifier's
 /// one-byte signature count field.
 pub fn try_offsets_to_ed25519_instruction(
     offsets: &[Ed25519SignatureOffsets],

@@ -1,6 +1,6 @@
 //! Small scalar helpers needed to assemble Ed25519 verification around syscalls.
 
-/// Group order of the ed25519 basepoint in little-endian form:
+/// Group order of the ed25519 base point in little-endian form:
 /// `2^252 + 27742317777372353535851937790883648493`.
 pub(crate) const BASEPOINT_ORDER: [u8; 32] = [
     0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
@@ -12,7 +12,7 @@ pub(crate) fn is_canonical_scalar(scalar: &[u8; 32]) -> bool {
     cmp_le(scalar, &BASEPOINT_ORDER).is_lt()
 }
 
-/// Reduces a 64-byte little-endian integer modulo the ed25519 basepoint order.
+/// Reduces a 64-byte little-endian integer modulo the ed25519 base point order.
 pub(crate) fn reduce_wide(wide: &[u8; 64]) -> [u8; 32] {
     let mut remainder = [0u8; 32];
 
