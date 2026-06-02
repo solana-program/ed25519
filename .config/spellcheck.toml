@@ -1,0 +1,5 @@
+[hunspell]
+use_builtin = true
+search_dirs = ["."]
+extra_dictionaries = ["spellcheck.dic"]
+

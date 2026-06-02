@@ -1,0 +1,40 @@
+[package]
+name = "solana-ed25519-program"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+bincode = ["dep:bincode", "dep:solana-instruction", "dep:solana-sdk-ids", "serde"]
+custom-heap = []
+dev-context-only-utils = ["bincode"]
+no-entrypoint = []
+serde = ["dep:serde", "dep:serde_derive"]
+
+[dependencies]
+bincode = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_derive = { workspace = true, optional = true }
+solana-account-info = { workspace = true }
+solana-curve25519 = { workspace = true }
+solana-instruction = { workspace = true, optional = true }
+solana-program-entrypoint = { workspace = true }
+solana-program-error = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-sdk-ids = { workspace = true, optional = true }
+solana-sha512-hasher = { workspace = true }
+
+[target.'cfg(not(any(target_os = "solana", target_arch = "bpf")))'.dependencies]
+ed25519-dalek = { workspace = true }
+
+[dev-dependencies]
+ed25519-dalek = { workspace = true }
+mollusk-svm = { workspace = true }
+solana-instruction = { workspace = true }
+solana-program-runtime = { workspace = true }
+
+[lints]
+workspace = true
