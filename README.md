@@ -56,9 +56,15 @@ Each offset record matches `Ed25519SignatureOffsets` exposed by this crate:
   uses this sentinel for the current instruction. An SBF program receives only
   its own instruction data; cross-instruction references require a future
   runtime change.
-- **Strict verification.** The program mirrors `ed25519_dalek::verify_strict`:
-  canonical `S`, non-small-order `R`, non-small-order public key, and
-  `S*B - H(R || A || M)*A == R`.
+- **ZIP-215 verification.** The program uses the cofactored equation
+  `[8](S·B − H(R‖A‖M)·A) == [8]R` with canonical `S`, following
+  [ZIP-215](https://zips.z.cash/zip-0215). Small-order `R` and public-key
+  points are not explicitly rejected — the cofactor multiplication makes them
+  indistinguishable from the identity contribution and verification fails
+  naturally for any signature not crafted for them. This is backward compatible
+  with `ed25519_dalek::verify_strict`: every point accepted by dalek is also
+  accepted here (dalek rejects small-order points outright, so no valid dalek
+  signature is broken by the relaxed check).
 - **Zero-signature payloads** are accepted only when the buffer is exactly the
   2-byte header.
 - **No accounts.** The program takes no account arguments and returns

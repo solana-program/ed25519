@@ -6,6 +6,11 @@ use {
     },
 };
 
+pub(crate) const EDWARDS_IDENTITY_COMPRESSED: [u8; PUBKEY_SERIALIZED_SIZE] = [
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+
 /// Holds all cryptographic material for a single signed message.
 struct SignedPayload<'a> {
     signature: [u8; SIGNATURE_SERIALIZED_SIZE],
@@ -59,6 +64,41 @@ pub(crate) fn signed_instruction(messages: &[&[u8]]) -> Vec<u8> {
             &offsets,
         );
     }
+
+    instruction
+}
+
+/// Builds a single-entry instruction from caller-provided signature material.
+pub(crate) fn instruction_with_signature(
+    message: &[u8],
+    signature: &[u8; SIGNATURE_SERIALIZED_SIZE],
+    pubkey: &[u8; PUBKEY_SERIALIZED_SIZE],
+) -> Vec<u8> {
+    let mut instruction = vec![0; DATA_START];
+    instruction[0] = 1;
+
+    let public_key_offset = instruction.len();
+    instruction.extend_from_slice(pubkey);
+
+    let signature_offset = instruction.len();
+    instruction.extend_from_slice(signature);
+
+    let message_data_offset = instruction.len();
+    instruction.extend_from_slice(message);
+
+    let offsets = Ed25519SignatureOffsets {
+        signature_offset: u16::try_from(signature_offset).unwrap(),
+        signature_instruction_index: CURRENT_INSTRUCTION_INDEX,
+        public_key_offset: u16::try_from(public_key_offset).unwrap(),
+        public_key_instruction_index: CURRENT_INSTRUCTION_INDEX,
+        message_data_offset: u16::try_from(message_data_offset).unwrap(),
+        message_data_size: u16::try_from(message.len()).unwrap(),
+        message_instruction_index: CURRENT_INSTRUCTION_INDEX,
+    };
+    write_offsets(
+        &mut instruction[SIGNATURE_OFFSETS_START..DATA_START],
+        &offsets,
+    );
 
     instruction
 }

@@ -29,6 +29,23 @@ pub(crate) fn reduce_wide(wide: &[u8; 64]) -> [u8; 32] {
     remainder
 }
 
+/// Returns `8 * scalar mod L`.
+///
+/// Canonical scalars are in `[0, L)` where `L < 2^253`, so bits 253–255 are
+/// always zero. Each doubling (`shl1`) produces a value in `[0, 2L) < 2^254`,
+/// which still fits in 32 bytes with no carry loss, and at most one
+/// subtraction of `L` suffices to reduce back to `[0, L)`.
+pub(crate) fn mul_by_8(scalar: &[u8; 32]) -> [u8; 32] {
+    let mut result = *scalar;
+    for _ in 0..3 {
+        shl1(&mut result);
+        if !cmp_le(&result, &BASEPOINT_ORDER).is_lt() {
+            sub_assign(&mut result, &BASEPOINT_ORDER);
+        }
+    }
+    result
+}
+
 /// Returns `-scalar mod L`, preserving zero.
 pub(crate) fn negate(scalar: &[u8; 32]) -> [u8; 32] {
     if scalar.iter().all(|byte| *byte == 0) {

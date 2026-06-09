@@ -1,5 +1,9 @@
 use {
-    common::{first_offsets, signed_instruction, write_offsets},
+    common::{
+        first_offsets, instruction_with_signature, signed_instruction, write_offsets,
+        EDWARDS_IDENTITY_COMPRESSED,
+    },
+    ed25519_dalek::{Signature, VerifyingKey},
     solana_ed25519_program::{
         process_instruction, CURRENT_INSTRUCTION_INDEX, DATA_START, SIGNATURE_SERIALIZED_SIZE,
     },
@@ -22,6 +26,22 @@ fn verifies_multiple_signatures() {
     let program_id = Pubkey::default();
     let instruction = signed_instruction(&[b"hello ed25519", b"second message"]);
 
+    assert_eq!(process_instruction(&program_id, &[], &instruction), Ok(()));
+}
+
+#[test]
+fn accepts_zip215_identity_vector_rejected_by_strict_verification() {
+    let program_id = Pubkey::default();
+    let message = b"zip215 low-order identity vector";
+    let mut signature = [0; SIGNATURE_SERIALIZED_SIZE];
+    signature[..EDWARDS_IDENTITY_COMPRESSED.len()].copy_from_slice(&EDWARDS_IDENTITY_COMPRESSED);
+
+    let dalek_key =
+        VerifyingKey::from_bytes(&EDWARDS_IDENTITY_COMPRESSED).expect("identity decompresses");
+    let dalek_signature = Signature::from_bytes(&signature);
+    assert!(dalek_key.verify_strict(message, &dalek_signature).is_err());
+
+    let instruction = instruction_with_signature(message, &signature, &EDWARDS_IDENTITY_COMPRESSED);
     assert_eq!(process_instruction(&program_id, &[], &instruction), Ok(()));
 }
 

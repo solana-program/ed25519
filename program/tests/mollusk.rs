@@ -1,6 +1,9 @@
 use {
-    common::{first_offsets, signed_instruction},
+    common::{
+        first_offsets, instruction_with_signature, signed_instruction, EDWARDS_IDENTITY_COMPRESSED,
+    },
     mollusk_svm::Mollusk,
+    solana_ed25519_program::SIGNATURE_SERIALIZED_SIZE,
     solana_instruction::Instruction,
     solana_program_runtime::{
         invoke_context::InvokeContext,
@@ -178,6 +181,27 @@ fn verifies_multiple_signatures_on_sbf_and_reports_compute_units() {
         "ed25519 verify: 2 signatures, {} total message bytes, {} CUs",
         SINGLE_MESSAGE.len() + SECOND_MESSAGE.len(),
         result.compute_units_consumed
+    );
+}
+
+#[test]
+fn accepts_zip215_identity_vector_on_sbf() {
+    let Some((mollusk, program_id)) = make_mollusk() else {
+        return;
+    };
+    let message = b"zip215 low-order identity vector";
+    let mut signature = [0; SIGNATURE_SERIALIZED_SIZE];
+    signature[..EDWARDS_IDENTITY_COMPRESSED.len()].copy_from_slice(&EDWARDS_IDENTITY_COMPRESSED);
+    let ix = instruction(
+        program_id,
+        instruction_with_signature(message, &signature, &EDWARDS_IDENTITY_COMPRESSED),
+    );
+    let result = mollusk.process_instruction(&ix, &[]);
+
+    assert!(
+        result.program_result.is_ok(),
+        "verify failed: {:?}",
+        result.program_result
     );
 }
 

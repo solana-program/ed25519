@@ -26,8 +26,8 @@
 //! - The `processor` module contains the on-chain verification logic.
 //! - The `instruction_data` module contains parser helpers for the 14-byte
 //!   offset records and instruction payload slices.
-//! - The `scalar` module contains strict scalar arithmetic helpers used to
-//!   match `ed25519_dalek::VerifyingKey::verify_strict`.
+//! - The `scalar` module contains scalar arithmetic helpers used for canonical
+//!   `S` checks and challenge reduction.
 //!
 //! The crate root remains thin and contains only documentation, re-exports, and
 //! the Solana entry point.
@@ -51,20 +51,23 @@
 //! "current instruction" sentinel (`u16::MAX`) when processed by this crate;
 //! cross-instruction references are rejected.
 //!
-//! # Strict verification behavior
+//! # ZIP-215 verification behavior
 //!
-//! This crate intentionally matches
-//! `ed25519_dalek::VerifyingKey::verify_strict` rather than a looser Ed25519
-//! verifier. Verification fails if any of the following are true:
+//! This crate verifies signatures with the cofactored ZIP-215 equation
+//! `[8](S*B - H(R || A || M)*A) == [8]R`. Verification fails if any of the
+//! following are true:
 //!
 //! - The signature scalar `S` is non-canonical.
-//! - The signature point `R` is a small-order point.
-//! - The compressed public key is invalid.
-//! - The public key is a small-order point.
-//! - The signature equation `S*B - H(R || A || M)*A == R` does not hold.
+//! - The signature point `R` cannot be decompressed.
+//! - The compressed public key cannot be decompressed.
+//! - The cofactored signature equation does not hold.
 //! - The instruction data is empty, truncated, or contains out-of-bounds
 //!   offsets.
 //! - Any offset record references an instruction index other than `u16::MAX`.
+//!
+//! Small-order `R` and public-key points are not rejected solely because they
+//! are small order; their torsion components are removed by the cofactor
+//! multiplication.
 //!
 //! # Additional security considerations
 //!

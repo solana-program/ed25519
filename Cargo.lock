@@ -2190,7 +2190,7 @@ checksum = "21e14a4f604117f379840956a8fc8695e4c84f5b0ebed192f31f60d9b85d581d"
 
 [[package]]
 name = "solana-ed25519-program"
-version = "0.1.0"
+version = "4.0.0"
 dependencies = [
  "bincode",
  "ed25519-dalek",

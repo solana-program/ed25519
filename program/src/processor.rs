@@ -18,10 +18,6 @@ const ED25519_BASEPOINT_COMPRESSED: PodEdwardsPoint = PodEdwardsPoint([
     0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
     0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
 ]);
-const EDWARDS_IDENTITY_COMPRESSED: PodEdwardsPoint = PodEdwardsPoint([
-    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-]);
 const EIGHT_SCALAR: PodScalar = PodScalar([
     0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -71,11 +67,11 @@ fn verify_signature(instruction_data: &[u8], offsets: &Ed25519SignatureOffsets) 
     verify_signature_fields(&fields)
 }
 
-/// Performs strict Ed25519 verification for one entry.
+/// Performs ZIP-215 Ed25519 verification for one entry.
 ///
-/// This matches `ed25519_dalek::VerifyingKey::verify_strict`:
-/// canonical `S`, non-small-order `R`, non-small-order public key `A`, and
-/// `S*B - H(R || A || M)*A == R`.
+/// Uses the cofactored equation `[8](S·B − H(R‖A‖M)·A) == [8]R`, which
+/// tolerates small-order R and A (their torsion components cancel under ×8).
+/// Canonical `S` is still required.
 fn verify_signature_fields(fields: &SignatureFields) -> ProgramResult {
     let r_bytes: &[u8; 32] = fields.signature[..32]
         .try_into()
@@ -88,29 +84,23 @@ fn verify_signature_fields(fields: &SignatureFields) -> ProgramResult {
     }
 
     let r_point = PodEdwardsPoint(*r_bytes);
-    reject_small_order(&r_point)?;
-
     let public_key_point = PodEdwardsPoint(*fields.public_key);
-    reject_small_order(&public_key_point)?;
 
     let challenge = compute_challenge(r_bytes, fields.public_key, fields.message);
     let minus_challenge = scalar::negate(&challenge);
-    let expected_r = multiscalar_multiply_edwards(
-        &[PodScalar(*s_bytes), PodScalar(minus_challenge)],
+    let lhs_cofactored = multiscalar_multiply_edwards(
+        &[
+            PodScalar(scalar::mul_by_8(s_bytes)),
+            PodScalar(scalar::mul_by_8(&minus_challenge)),
+        ],
         &[ED25519_BASEPOINT_COMPRESSED, public_key_point],
     )
     .ok_or(ProgramError::InvalidArgument)?;
 
-    if expected_r.0 != r_point.0 {
-        return Err(ProgramError::InvalidArgument);
-    }
+    let r_cofactored =
+        multiply_edwards(&EIGHT_SCALAR, &r_point).ok_or(ProgramError::InvalidArgument)?;
 
-    Ok(())
-}
-
-fn reject_small_order(point: &PodEdwardsPoint) -> ProgramResult {
-    let cofactored = multiply_edwards(&EIGHT_SCALAR, point).ok_or(ProgramError::InvalidArgument)?;
-    if cofactored == EDWARDS_IDENTITY_COMPRESSED {
+    if lhs_cofactored.0 != r_cofactored.0 {
         return Err(ProgramError::InvalidArgument);
     }
 

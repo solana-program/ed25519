@@ -33,10 +33,6 @@ pub(crate) struct SignatureFields<'a> {
 
 /// Parses a 14-byte `Ed25519SignatureOffsets` record from `input`.
 fn unpack_signature_offsets(input: &[u8]) -> Result<Ed25519SignatureOffsets, ProgramError> {
-    if input.len() != SIGNATURE_OFFSETS_SERIALIZED_SIZE {
-        return Err(ProgramError::InvalidInstructionData);
-    }
-
     Ok(Ed25519SignatureOffsets {
         signature_offset: decode_u16(input, 0)?,
         signature_instruction_index: decode_u16(input, 2)?,
