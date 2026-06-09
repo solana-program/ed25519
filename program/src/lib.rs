@@ -6,20 +6,20 @@
 //! signatures inside a Solana program, and re-exports the shared Ed25519
 //! instruction types and client-side builders from the upstream SDK crate.
 //!
-//! _This crate exposes low-level cryptographic building blocks. Read this
+//! _This crate exposes low-level signature-checking building blocks. Read this
 //! documentation carefully and validate instruction layout assumptions in any
 //! program that depends on signature verification for safety._
 //!
 //! The native ed25519 precompile validates signatures at the transaction level.
 //! The shared API re-exported by this crate mirrors that native instruction
 //! format so clients can build compatible instructions, while this crate's
-//! processor lets other programs CPI into a verifier and trust the explicit
-//! pass/fail result.
+//! processor lets other programs CPI into a verification program and trust the
+//! explicit pass/fail result.
 //!
 //! # Current crate structure
 //!
 //! This crate intentionally separates the shared client-facing wire definitions
-//! from the on-chain verifier implementation:
+//! from the on-chain verification implementation:
 //!
 //! - The re-exported SDK surface provides types like
 //!   [`Ed25519SignatureOffsets`], layout constants, and instruction builders.
@@ -66,8 +66,8 @@
 //! - Any offset record references an instruction index other than `u16::MAX`.
 //!
 //! Small-order `R` and public-key points are not rejected solely because they
-//! are small order; their torsion components are removed by the cofactor
-//! multiplication.
+//! are small order; their torsion components are removed by multiplication by
+//! 8.
 //!
 //! # Additional security considerations
 //!
@@ -79,8 +79,8 @@
 //!   signature material to live.
 //! - The signed messages are domain-separated and cannot be replayed across
 //!   unrelated instructions or protocols.
-//! - The verifier program ID is the expected one, so a malicious program cannot
-//!   fake a successful verification path.
+//! - The verification program ID is the expected one, so a malicious program
+//!   cannot fake a successful verification path.
 
 mod instruction;
 mod instruction_data;

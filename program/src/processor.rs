@@ -69,8 +69,9 @@ fn verify_signature(instruction_data: &[u8], offsets: &Ed25519SignatureOffsets) 
 
 /// Performs ZIP-215 Ed25519 verification for one entry.
 ///
-/// Uses the cofactored equation `[8](S·B − H(R‖A‖M)·A) == [8]R`, which
-/// tolerates small-order R and A (their torsion components cancel under ×8).
+/// Uses the cofactored equation `[8](S*B - H(R || A || M)*A) == [8]R`, which
+/// tolerates small-order R and A because their torsion components cancel when
+/// multiplied by 8.
 /// Canonical `S` is still required.
 fn verify_signature_fields(fields: &SignatureFields) -> ProgramResult {
     let r_bytes: &[u8; 32] = fields.signature[..32]
