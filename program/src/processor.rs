@@ -6,7 +6,9 @@ use {
     },
     solana_account_info::AccountInfo,
     solana_curve25519::{
-        edwards::{multiply_edwards, multiscalar_multiply_edwards, PodEdwardsPoint},
+        edwards::{
+            multiply_edwards, multiscalar_multiply_edwards, subtract_edwards, PodEdwardsPoint,
+        },
         scalar::PodScalar,
     },
     solana_program_entrypoint::ProgramResult,
@@ -17,6 +19,10 @@ use {
 const ED25519_BASEPOINT_COMPRESSED: PodEdwardsPoint = PodEdwardsPoint([
     0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
     0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+]);
+const EDWARDS_IDENTITY_COMPRESSED: PodEdwardsPoint = PodEdwardsPoint([
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ]);
 const EIGHT_SCALAR: PodScalar = PodScalar([
     0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -69,9 +75,10 @@ fn verify_signature(instruction_data: &[u8], offsets: &Ed25519SignatureOffsets) 
 
 /// Performs ZIP-215 Ed25519 verification for one entry.
 ///
-/// Uses the cofactored equation `[8](S*B - H(R || A || M)*A) == [8]R`, which
-/// tolerates small-order R and A because their torsion components cancel when
-/// multiplied by 8.
+/// Uses the cofactored equation `[8](S*B - H(R || A || M)*A) == [8]R`.
+/// The combined multiply-add minus `R` is performed first, then multiplied by
+/// 8 and compared with the identity, matching the ed25519-zebra batch
+/// verification shape.
 /// Canonical `S` is still required.
 fn verify_signature_fields(fields: &SignatureFields) -> ProgramResult {
     let r_bytes: &[u8; 32] = fields.signature[..32]
@@ -89,19 +96,16 @@ fn verify_signature_fields(fields: &SignatureFields) -> ProgramResult {
 
     let challenge = compute_challenge(r_bytes, fields.public_key, fields.message);
     let minus_challenge = scalar::negate(&challenge);
-    let lhs_cofactored = multiscalar_multiply_edwards(
-        &[
-            PodScalar(scalar::mul_by_8(s_bytes)),
-            PodScalar(scalar::mul_by_8(&minus_challenge)),
-        ],
+    let lhs = multiscalar_multiply_edwards(
+        &[PodScalar(*s_bytes), PodScalar(minus_challenge)],
         &[ED25519_BASEPOINT_COMPRESSED, public_key_point],
     )
     .ok_or(ProgramError::InvalidArgument)?;
+    let difference = subtract_edwards(&lhs, &r_point).ok_or(ProgramError::InvalidArgument)?;
+    let difference_cofactored =
+        multiply_edwards(&EIGHT_SCALAR, &difference).ok_or(ProgramError::InvalidArgument)?;
 
-    let r_cofactored =
-        multiply_edwards(&EIGHT_SCALAR, &r_point).ok_or(ProgramError::InvalidArgument)?;
-
-    if lhs_cofactored.0 != r_cofactored.0 {
+    if difference_cofactored != EDWARDS_IDENTITY_COMPRESSED {
         return Err(ProgramError::InvalidArgument);
     }
 

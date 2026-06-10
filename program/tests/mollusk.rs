@@ -1,6 +1,7 @@
 use {
     common::{
         first_offsets, instruction_with_signature, signed_instruction, EDWARDS_IDENTITY_COMPRESSED,
+        SMALL_ORDER_PUBLIC_KEY_COMPRESSED,
     },
     mollusk_svm::Mollusk,
     solana_ed25519_program::SIGNATURE_SERIALIZED_SIZE,
@@ -185,16 +186,16 @@ fn verifies_multiple_signatures_on_sbf_and_reports_compute_units() {
 }
 
 #[test]
-fn accepts_zip215_identity_vector_on_sbf() {
+fn accepts_zip215_small_order_public_key_vector_on_sbf() {
     let Some((mollusk, program_id)) = make_mollusk() else {
         return;
     };
-    let message = b"zip215 low-order identity vector";
+    let message = b"zip215 low-order public key vector";
     let mut signature = [0; SIGNATURE_SERIALIZED_SIZE];
     signature[..EDWARDS_IDENTITY_COMPRESSED.len()].copy_from_slice(&EDWARDS_IDENTITY_COMPRESSED);
     let ix = instruction(
         program_id,
-        instruction_with_signature(message, &signature, &EDWARDS_IDENTITY_COMPRESSED),
+        instruction_with_signature(message, &signature, &SMALL_ORDER_PUBLIC_KEY_COMPRESSED),
     );
     let result = mollusk.process_instruction(&ix, &[]);
 
