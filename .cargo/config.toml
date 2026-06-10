@@ -1,0 +1,5 @@
+[target.sbf-solana-solana]
+rustflags = ["-C", "target-feature=+static-syscalls"]
+
+[target.sbpf-solana-solana]
+rustflags = ["-C", "target-feature=+static-syscalls"]
