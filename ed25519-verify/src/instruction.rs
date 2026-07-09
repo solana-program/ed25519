@@ -3,16 +3,8 @@
 
 #[cfg(feature = "serde")]
 use serde_derive::{Deserialize, Serialize};
-#[cfg(all(
-    feature = "bincode",
-    not(any(target_os = "solana", target_arch = "bpf"))
-))]
-use solana_instruction::Instruction;
-#[cfg(all(
-    feature = "bincode",
-    not(any(target_os = "solana", target_arch = "bpf"))
-))]
-use solana_program_error::ProgramError;
+#[cfg(feature = "instruction")]
+use {alloc::vec, solana_instruction::Instruction, solana_program_error::ProgramError};
 
 pub const PUBKEY_SERIALIZED_SIZE: usize = 32;
 pub const SIGNATURE_SERIALIZED_SIZE: usize = 64;
@@ -54,10 +46,7 @@ pub fn sign_message(
     signing_key.sign(message).to_bytes()
 }
 
-#[cfg(all(
-    feature = "bincode",
-    not(any(target_os = "solana", target_arch = "bpf"))
-))]
+#[cfg(feature = "instruction")]
 /// Encode just the signature offsets in a single ed25519 instruction.
 ///
 /// This preserves the upstream SDK helper API by returning [`Instruction`]
@@ -72,10 +61,7 @@ pub fn offsets_to_ed25519_instruction(offsets: &[Ed25519SignatureOffsets]) -> In
     try_offsets_to_ed25519_instruction(offsets).expect("invalid ed25519 instruction offsets")
 }
 
-#[cfg(all(
-    feature = "bincode",
-    not(any(target_os = "solana", target_arch = "bpf"))
-))]
+#[cfg(feature = "instruction")]
 /// Encode just the signature offsets in a single ed25519 instruction with
 /// checked inputs.
 ///
@@ -108,10 +94,7 @@ pub fn try_offsets_to_ed25519_instruction(
     })
 }
 
-#[cfg(all(
-    feature = "bincode",
-    not(any(target_os = "solana", target_arch = "bpf"))
-))]
+#[cfg(feature = "instruction")]
 /// Builds a single-signature ed25519 instruction.
 ///
 /// This preserves the upstream SDK helper API by returning [`Instruction`]
@@ -131,10 +114,7 @@ pub fn new_ed25519_instruction_with_signature(
         .expect("invalid ed25519 instruction inputs")
 }
 
-#[cfg(all(
-    feature = "bincode",
-    not(any(target_os = "solana", target_arch = "bpf"))
-))]
+#[cfg(feature = "instruction")]
 /// Builds a single-signature ed25519 instruction with checked inputs.
 ///
 /// Returns an error if the message length or any offset cannot be represented
@@ -199,10 +179,7 @@ pub fn try_new_ed25519_instruction_with_signature(
     })
 }
 
-#[cfg(all(
-    feature = "bincode",
-    not(any(target_os = "solana", target_arch = "bpf"))
-))]
+#[cfg(feature = "instruction")]
 fn serialize_signature_offsets(
     output: &mut [u8],
     offsets: &Ed25519SignatureOffsets,
@@ -222,13 +199,10 @@ fn serialize_signature_offsets(
     Ok(())
 }
 
-#[cfg(all(
-    test,
-    feature = "bincode",
-    not(any(target_os = "solana", target_arch = "bpf"))
-))]
+#[cfg(all(test, feature = "instruction"))]
 mod tests {
     use super::*;
+    use alloc::vec;
 
     fn read_first_offsets(input: &[u8]) -> Ed25519SignatureOffsets {
         Ed25519SignatureOffsets {

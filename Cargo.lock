@@ -1570,6 +1570,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "pinocchio"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6cababcb62a2e739c7078ae16eda02789a6e3edd21bbdded864e85c38a7914d"
+dependencies = [
+ "solana-account-view",
+ "solana-address 2.6.0",
+ "solana-define-syscall 5.1.0",
+ "solana-instruction-view",
+ "solana-program-error",
+]
+
+[[package]]
 name = "pkcs8"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2004,6 +2017,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-account-view"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc141b940560430425ebaadb7645496c45f6a10fad9911d719bd03eab7f4d422"
+dependencies = [
+ "solana-address 2.6.0",
+ "solana-program-error",
+]
+
+[[package]]
 name = "solana-address"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2192,18 +2215,28 @@ checksum = "21e14a4f604117f379840956a8fc8695e4c84f5b0ebed192f31f60d9b85d581d"
 name = "solana-ed25519-program"
 version = "4.0.0"
 dependencies = [
- "bincode",
  "ed25519-dalek",
  "mollusk-svm",
- "serde",
- "serde_derive",
- "solana-account-info",
- "solana-curve25519",
+ "pinocchio",
+ "solana-account",
+ "solana-ed25519-verify",
  "solana-instruction",
- "solana-program-entrypoint",
- "solana-program-error",
  "solana-program-runtime",
  "solana-pubkey 4.1.0",
+ "solana-sha512-hasher",
+]
+
+[[package]]
+name = "solana-ed25519-verify"
+version = "4.0.0"
+dependencies = [
+ "bincode",
+ "ed25519-dalek",
+ "serde",
+ "serde_derive",
+ "solana-curve25519",
+ "solana-instruction",
+ "solana-program-error",
  "solana-sdk-ids",
  "solana-sha512-hasher",
 ]
@@ -2305,6 +2338,18 @@ dependencies = [
  "num-traits",
  "serde",
  "serde_derive",
+ "solana-program-error",
+]
+
+[[package]]
+name = "solana-instruction-view"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ab7a27d0c4214b9f7389c3dd00b68c93093a67f1dcc5b7893aebe299bbcbb47"
+dependencies = [
+ "solana-account-view",
+ "solana-address 2.6.0",
+ "solana-define-syscall 5.1.0",
  "solana-program-error",
 ]
 

@@ -1,7 +1,13 @@
-# solana-ed25519-program: on-chain signature verification for Solana
+# solana-ed25519: on-chain signature verification for Solana
 
-A minimal Solana SBF program that re-verifies Ed25519 signatures on-chain using
-the Curve25519 and SHA-512 syscalls.
+This workspace provides two crates:
+
+- `solana-ed25519-verify`: a no-std, stateless Ed25519 verification library.
+- `solana-ed25519-program`: a minimal Pinocchio SBF program that calls the
+  library and returns an explicit pass/fail result.
+
+Both use the Curve25519 and SHA-512 syscalls. The program entrypoint uses
+Pinocchio's lazy instruction context to avoid up-front account parsing.
 
 ## Motivation
 
@@ -10,10 +16,10 @@ maintained and deployed like any other on-chain program. The instruction format
 is intentionally identical to the precompile for current-instruction data, so
 clients can reuse the standard Ed25519 instruction layout.
 
-Being a regular SBF program also unlocks CPI: another program can invoke this
-one and act on the explicit pass/fail result, rather than relying on
-`sysvar::instructions` inspection to confirm a parallel precompile instruction
-succeeded.
+Programs can either depend on `solana-ed25519-verify` directly or invoke
+`solana-ed25519-program` by CPI and act on the explicit pass/fail result,
+rather than relying on `sysvar::instructions` inspection to confirm a parallel
+precompile instruction succeeded.
 
 [ed25519 precompile]: https://docs.solanalabs.com/runtime/programs#ed25519-program
 
@@ -70,6 +76,29 @@ Each offset record matches `Ed25519SignatureOffsets` exposed by this crate:
 - **No accounts.** The program takes no account arguments and returns
   `InvalidArgument` if any are supplied.
 
+## Cargo features
+
+| Feature | Default | Description |
+|---|---|---|
+| `instruction` | off | Enables alloc-based `Instruction` construction helpers. |
+| `bincode` | off | Backward-compatible alias for SDK-style helper APIs; also enables `instruction`. |
+| `dev-context-only-utils` | off | Backward-compatible alias for `bincode`, matching upstream helper crates. |
+| `serde` | off | Derives serde traits for `Ed25519SignatureOffsets`. |
+
+`solana-ed25519-program` only exposes `no-entrypoint`, which omits the
+Pinocchio entrypoint when embedding the program crate in tests or another
+program.
+
+## Public API
+
+`solana-ed25519-verify` exposes the stateless `Ed25519Verifier`, layout
+constants, `Ed25519SignatureOffsets`, and, with the `instruction` feature,
+SDK-compatible instruction constructors such as
+`new_ed25519_instruction_with_signature` and
+`try_new_ed25519_instruction_with_signature`.
+
+`solana-ed25519-program` calls the library from its Pinocchio processor.
+
 ## Build and test
 
 Stable Rust `1.93.1` is pinned in `rust-toolchain.toml`. Some make targets
@@ -77,7 +106,7 @@ also require the nightly Rust chain `nightly-2026-01-22`.
 
 ```sh
 # Unit tests (host, no SBF toolchain required)
-cargo test --manifest-path program/Cargo.toml
+cargo test --workspace
 
 # SBF build only
 cargo build-sbf --arch v2 --manifest-path program/Cargo.toml

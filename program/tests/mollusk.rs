@@ -4,8 +4,9 @@ use {
         SMALL_ORDER_PUBLIC_KEY_COMPRESSED,
     },
     mollusk_svm::Mollusk,
-    solana_ed25519_program::SIGNATURE_SERIALIZED_SIZE,
-    solana_instruction::Instruction,
+    solana_account::Account,
+    solana_ed25519_verify::SIGNATURE_SERIALIZED_SIZE,
+    solana_instruction::{AccountMeta, Instruction},
     solana_program_runtime::{
         invoke_context::InvokeContext,
         solana_sbpf::{
@@ -142,6 +143,14 @@ fn instruction(program_id: Pubkey, data: Vec<u8>) -> Instruction {
     }
 }
 
+fn instruction_with_account(program_id: Pubkey, data: Vec<u8>, account: Pubkey) -> Instruction {
+    Instruction {
+        program_id,
+        accounts: vec![AccountMeta::new_readonly(account, false)],
+        data,
+    }
+}
+
 #[test]
 fn verifies_single_signature_on_sbf_and_reports_compute_units() {
     let Some((mollusk, program_id)) = make_mollusk() else {
@@ -236,6 +245,23 @@ fn rejects_tampered_public_key_on_sbf() {
     assert!(
         result.program_result.is_err(),
         "expected failure on tampered public key, got: {:?}",
+        result.program_result
+    );
+}
+
+#[test]
+fn rejects_accounts_on_sbf() {
+    let Some((mollusk, program_id)) = make_mollusk() else {
+        return;
+    };
+    let account = Pubkey::new_unique();
+    let ix = instruction_with_account(program_id, signed_instruction(&[SINGLE_MESSAGE]), account);
+    let accounts = [(account, Account::default())];
+
+    let result = mollusk.process_instruction(&ix, &accounts);
+    assert!(
+        result.program_result.is_err(),
+        "expected failure when accounts are provided, got: {:?}",
         result.program_result
     );
 }
