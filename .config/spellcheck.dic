@@ -1,4 +1,4 @@
-16
+20
 CPI
 Ed25519
 Ed25519SignatureOffsets
@@ -8,10 +8,14 @@ SDK
 SVM
 Solana
 cofactored
+cryptographic
+deserializes
 ed25519
+entrypoint
 malleability
 precompile
 precompiles
 runtime
 syscall
 syscalls
+verifier
