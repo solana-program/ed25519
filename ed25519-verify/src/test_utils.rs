@@ -1,16 +1,24 @@
+//! Test-only ed25519 instruction builders.
+//!
+//! Shared by this crate's own integration tests and by `solana-ed25519-program`'s,
+//! so the wire-format builders live in one place instead of being duplicated
+//! per crate. Gated behind `dev-context-only-utils` so none of this ships in
+//! on-chain builds.
+
 use {
-    ed25519_dalek::{Signer, SigningKey},
-    solana_ed25519_verify::{
+    crate::{
         Ed25519SignatureOffsets, CURRENT_INSTRUCTION_INDEX, DATA_START, PUBKEY_SERIALIZED_SIZE,
         SIGNATURE_OFFSETS_SERIALIZED_SIZE, SIGNATURE_OFFSETS_START, SIGNATURE_SERIALIZED_SIZE,
     },
+    alloc::{vec, vec::Vec},
+    ed25519_dalek::{Signer, SigningKey},
 };
 
-pub(crate) const EDWARDS_IDENTITY_COMPRESSED: [u8; PUBKEY_SERIALIZED_SIZE] = [
+pub const EDWARDS_IDENTITY_COMPRESSED: [u8; PUBKEY_SERIALIZED_SIZE] = [
     0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
-pub(crate) const SMALL_ORDER_PUBLIC_KEY_COMPRESSED: [u8; PUBKEY_SERIALIZED_SIZE] = [
+pub const SMALL_ORDER_PUBLIC_KEY_COMPRESSED: [u8; PUBKEY_SERIALIZED_SIZE] = [
     0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f,
 ];
@@ -33,7 +41,7 @@ fn signed_payload<'a>(signing_key: &SigningKey, message: &'a [u8]) -> SignedPayl
 
 /// Builds a valid ed25519 instruction buffer containing one entry per message,
 /// all signed by a fixed test key.
-pub(crate) fn signed_instruction(messages: &[&[u8]]) -> Vec<u8> {
+pub fn signed_instruction(messages: &[&[u8]]) -> Vec<u8> {
     let signing_key = SigningKey::from_bytes(&[7; 32]);
     let payloads = messages
         .iter()
@@ -73,7 +81,7 @@ pub(crate) fn signed_instruction(messages: &[&[u8]]) -> Vec<u8> {
 }
 
 /// Builds a single-entry instruction from caller-provided signature material.
-pub(crate) fn instruction_with_signature(
+pub fn instruction_with_signature(
     message: &[u8],
     signature: &[u8; SIGNATURE_SERIALIZED_SIZE],
     pubkey: &[u8; PUBKEY_SERIALIZED_SIZE],
@@ -108,7 +116,7 @@ pub(crate) fn instruction_with_signature(
 }
 
 /// Parses and returns the first `Ed25519SignatureOffsets` entry from `instruction`.
-pub(crate) fn first_offsets(instruction: &[u8]) -> Ed25519SignatureOffsets {
+pub fn first_offsets(instruction: &[u8]) -> Ed25519SignatureOffsets {
     read_offsets(&instruction[SIGNATURE_OFFSETS_START..DATA_START])
 }
 
@@ -126,7 +134,7 @@ fn read_offsets(input: &[u8]) -> Ed25519SignatureOffsets {
 }
 
 /// Serializes `offsets` into the 14-byte little-endian wire format in `output`.
-pub(crate) fn write_offsets(output: &mut [u8], offsets: &Ed25519SignatureOffsets) {
+pub fn write_offsets(output: &mut [u8], offsets: &Ed25519SignatureOffsets) {
     output[0..2].copy_from_slice(&offsets.signature_offset.to_le_bytes());
     output[2..4].copy_from_slice(&offsets.signature_instruction_index.to_le_bytes());
     output[4..6].copy_from_slice(&offsets.public_key_offset.to_le_bytes());

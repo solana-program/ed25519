@@ -28,6 +28,8 @@ extern crate std;
 mod instruction;
 mod instruction_data;
 mod scalar;
+#[cfg(feature = "dev-context-only-utils")]
+pub mod test_utils;
 mod verifier;
 
 #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]

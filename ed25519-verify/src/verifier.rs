@@ -1,6 +1,6 @@
 use {
     crate::{
-        instruction_data::{get_signature_fields, iter_signature_offsets, SignatureFields},
+        instruction_data::{get_signature_fields, iter_signature_offsets},
         scalar, Ed25519SignatureOffsets, CURRENT_INSTRUCTION_INDEX, PUBKEY_SERIALIZED_SIZE,
         SIGNATURE_SERIALIZED_SIZE,
     },
@@ -100,10 +100,6 @@ impl Ed25519Verifier {
         }
 
         let fields = get_signature_fields(instruction_data, offsets)?;
-        self.verify_signature_fields(&fields)
-    }
-
-    fn verify_signature_fields(&self, fields: &SignatureFields) -> Result<(), ProgramError> {
         self.verify_signature(fields.signature, fields.public_key, fields.message)
     }
 }

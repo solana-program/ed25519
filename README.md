@@ -82,7 +82,7 @@ Each offset record matches `Ed25519SignatureOffsets` exposed by this crate:
 |---|---|---|
 | `instruction` | off | Enables alloc-based `Instruction` construction helpers. |
 | `bincode` | off | Backward-compatible alias for SDK-style helper APIs; also enables `instruction`. |
-| `dev-context-only-utils` | off | Backward-compatible alias for `bincode`, matching upstream helper crates. |
+| `dev-context-only-utils` | off | Backward-compatible alias for `bincode`; also exposes `test_utils`, the instruction builders shared by this crate's and `solana-ed25519-program`'s tests. |
 | `serde` | off | Derives serde traits for `Ed25519SignatureOffsets`. |
 
 `solana-ed25519-program` only exposes `no-entrypoint`, which omits the

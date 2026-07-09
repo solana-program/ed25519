@@ -15,9 +15,9 @@ pinocchio = { workspace = true }
 solana-ed25519-verify = { workspace = true, default-features = false }
 
 [dev-dependencies]
-ed25519-dalek = { workspace = true }
 mollusk-svm = { workspace = true }
 solana-account = { workspace = true }
+solana-ed25519-verify = { workspace = true, features = ["dev-context-only-utils"] }
 solana-instruction = { workspace = true }
 solana-program-runtime = { workspace = true }
 solana-pubkey = { workspace = true }

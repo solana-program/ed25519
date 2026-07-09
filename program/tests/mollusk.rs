@@ -1,11 +1,13 @@
 use {
-    common::{
-        first_offsets, instruction_with_signature, signed_instruction, EDWARDS_IDENTITY_COMPRESSED,
-        SMALL_ORDER_PUBLIC_KEY_COMPRESSED,
-    },
     mollusk_svm::Mollusk,
     solana_account::Account,
-    solana_ed25519_verify::SIGNATURE_SERIALIZED_SIZE,
+    solana_ed25519_verify::{
+        test_utils::{
+            first_offsets, instruction_with_signature, signed_instruction,
+            EDWARDS_IDENTITY_COMPRESSED, SMALL_ORDER_PUBLIC_KEY_COMPRESSED,
+        },
+        SIGNATURE_SERIALIZED_SIZE,
+    },
     solana_instruction::{AccountMeta, Instruction},
     solana_program_runtime::{
         invoke_context::InvokeContext,
@@ -18,8 +20,6 @@ use {
     solana_pubkey::Pubkey,
     std::{env, error::Error, io, mem::size_of, path::PathBuf, slice},
 };
-
-mod common;
 
 const PROGRAM_SO_STEM: &str = "solana_ed25519_program";
 const SINGLE_MESSAGE: &[u8] = b"deterministic ed25519 verify benchmark";

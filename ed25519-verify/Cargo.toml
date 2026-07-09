@@ -26,5 +26,8 @@ solana-sha512-hasher = { workspace = true }
 [target.'cfg(not(any(target_os = "solana", target_arch = "bpf")))'.dependencies]
 ed25519-dalek = { workspace = true }
 
+[dev-dependencies]
+solana-ed25519-verify = { path = ".", features = ["dev-context-only-utils"] }
+
 [lints]
 workspace = true

@@ -1,16 +1,14 @@
 use {
-    common::{
-        first_offsets, instruction_with_signature, signed_instruction, write_offsets,
-        EDWARDS_IDENTITY_COMPRESSED, SMALL_ORDER_PUBLIC_KEY_COMPRESSED,
-    },
     ed25519_dalek::{Signature, VerifyingKey},
     solana_ed25519_verify::{
+        test_utils::{
+            first_offsets, instruction_with_signature, signed_instruction, write_offsets,
+            EDWARDS_IDENTITY_COMPRESSED, SMALL_ORDER_PUBLIC_KEY_COMPRESSED,
+        },
         Ed25519Verifier, CURRENT_INSTRUCTION_INDEX, DATA_START, SIGNATURE_SERIALIZED_SIZE,
     },
     solana_program_error::ProgramError,
 };
-
-mod common;
 
 fn process_instruction(instruction_data: &[u8]) -> Result<(), ProgramError> {
     Ed25519Verifier::new().verify_instruction(instruction_data)
