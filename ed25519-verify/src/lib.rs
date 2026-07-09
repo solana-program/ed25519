@@ -35,10 +35,7 @@ mod verifier;
 #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
 pub use instruction::sign_message;
 #[cfg(feature = "instruction")]
-pub use instruction::{
-    new_ed25519_instruction_with_signature, offsets_to_ed25519_instruction,
-    try_new_ed25519_instruction_with_signature, try_offsets_to_ed25519_instruction,
-};
+pub use instruction::{new_ed25519_instruction_with_signature, offsets_to_ed25519_instruction};
 pub use instruction::{
     Ed25519SignatureOffsets, CURRENT_INSTRUCTION_INDEX, DATA_START, PUBKEY_SERIALIZED_SIZE,
     SIGNATURE_OFFSETS_SERIALIZED_SIZE, SIGNATURE_OFFSETS_START, SIGNATURE_SERIALIZED_SIZE,

@@ -49,25 +49,9 @@ pub fn sign_message(
 #[cfg(feature = "instruction")]
 /// Encode just the signature offsets in a single ed25519 instruction.
 ///
-/// This preserves the upstream SDK helper API by returning [`Instruction`]
-/// directly. For fallible construction with explicit overflow errors, use
-/// [`try_offsets_to_ed25519_instruction`].
-///
-/// # Panics
-///
-/// Panics if `offsets.len()` cannot fit in the native program's one-byte
-/// signature count field.
-pub fn offsets_to_ed25519_instruction(offsets: &[Ed25519SignatureOffsets]) -> Instruction {
-    try_offsets_to_ed25519_instruction(offsets).expect("invalid ed25519 instruction offsets")
-}
-
-#[cfg(feature = "instruction")]
-/// Encode just the signature offsets in a single ed25519 instruction with
-/// checked inputs.
-///
 /// Returns an error if `offsets.len()` cannot fit in the native program's
 /// one-byte signature count field.
-pub fn try_offsets_to_ed25519_instruction(
+pub fn offsets_to_ed25519_instruction(
     offsets: &[Ed25519SignatureOffsets],
 ) -> Result<Instruction, ProgramError> {
     let num_signatures =
@@ -97,29 +81,9 @@ pub fn try_offsets_to_ed25519_instruction(
 #[cfg(feature = "instruction")]
 /// Builds a single-signature ed25519 instruction.
 ///
-/// This preserves the upstream SDK helper API by returning [`Instruction`]
-/// directly. For fallible construction with explicit overflow errors, use
-/// [`try_new_ed25519_instruction_with_signature`].
-///
-/// # Panics
-///
-/// Panics if the message length or any offset cannot be represented in the
-/// 16-bit wire fields.
-pub fn new_ed25519_instruction_with_signature(
-    message: &[u8],
-    signature: &[u8; SIGNATURE_SERIALIZED_SIZE],
-    pubkey: &[u8; PUBKEY_SERIALIZED_SIZE],
-) -> Instruction {
-    try_new_ed25519_instruction_with_signature(message, signature, pubkey)
-        .expect("invalid ed25519 instruction inputs")
-}
-
-#[cfg(feature = "instruction")]
-/// Builds a single-signature ed25519 instruction with checked inputs.
-///
 /// Returns an error if the message length or any offset cannot be represented
 /// in the 16-bit wire fields.
-pub fn try_new_ed25519_instruction_with_signature(
+pub fn new_ed25519_instruction_with_signature(
     message: &[u8],
     signature: &[u8; SIGNATURE_SERIALIZED_SIZE],
     pubkey: &[u8; PUBKEY_SERIALIZED_SIZE],
@@ -217,11 +181,12 @@ mod tests {
     }
 
     #[test]
-    fn test_instruction_builder_keeps_legacy_return_type() {
+    fn test_instruction_builder_produces_current_instruction_offsets() {
         let signature = [1; SIGNATURE_SERIALIZED_SIZE];
         let pubkey = [2; PUBKEY_SERIALIZED_SIZE];
 
-        let instruction = new_ed25519_instruction_with_signature(b"message", &signature, &pubkey);
+        let instruction = new_ed25519_instruction_with_signature(b"message", &signature, &pubkey)
+            .expect("valid inputs");
         let offsets = read_first_offsets(&instruction.data);
 
         assert_eq!(instruction.accounts.len(), 0);
@@ -245,21 +210,17 @@ mod tests {
         let max_message = vec![3; u16::MAX as usize];
         let oversized_message = vec![3; u16::MAX as usize + 1];
 
+        assert!(new_ed25519_instruction_with_signature(&max_message, &signature, &pubkey).is_ok());
         assert!(
-            try_new_ed25519_instruction_with_signature(&max_message, &signature, &pubkey).is_ok()
+            new_ed25519_instruction_with_signature(&oversized_message, &signature, &pubkey)
+                .is_err()
         );
-        assert!(try_new_ed25519_instruction_with_signature(
-            &oversized_message,
-            &signature,
-            &pubkey
-        )
-        .is_err());
     }
 
     #[test]
     fn test_offsets_builder_rejects_too_many_signatures() {
         let offsets = vec![Ed25519SignatureOffsets::default(); u8::MAX as usize + 1];
 
-        assert!(try_offsets_to_ed25519_instruction(&offsets).is_err());
+        assert!(offsets_to_ed25519_instruction(&offsets).is_err());
     }
 }

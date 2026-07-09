@@ -8,13 +8,11 @@ crate-type = ["rlib"]
 
 [features]
 default = []
-bincode = ["dep:bincode", "instruction"]
-dev-context-only-utils = ["bincode"]
+dev-context-only-utils = ["instruction"]
 instruction = ["dep:solana-instruction", "dep:solana-sdk-ids", "serde"]
 serde = ["dep:serde", "dep:serde_derive"]
 
 [dependencies]
-bincode = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_derive = { workspace = true, optional = true }
 solana-curve25519 = { workspace = true }

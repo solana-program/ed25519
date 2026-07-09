@@ -2229,7 +2229,6 @@ dependencies = [
 name = "solana-ed25519-verify"
 version = "4.0.0"
 dependencies = [
- "bincode",
  "ed25519-dalek",
  "serde",
  "serde_derive",

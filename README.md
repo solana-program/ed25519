@@ -81,8 +81,7 @@ Each offset record matches `Ed25519SignatureOffsets` exposed by this crate:
 | Feature | Default | Description |
 |---|---|---|
 | `instruction` | off | Enables alloc-based `Instruction` construction helpers. |
-| `bincode` | off | Backward-compatible alias for SDK-style helper APIs; also enables `instruction`. |
-| `dev-context-only-utils` | off | Backward-compatible alias for `bincode`; also exposes `test_utils`, the instruction builders shared by this crate's and `solana-ed25519-program`'s tests. |
+| `dev-context-only-utils` | off | Enables `instruction` and exposes `test_utils`, the instruction builders shared by this crate's and `solana-ed25519-program`'s tests. |
 | `serde` | off | Derives serde traits for `Ed25519SignatureOffsets`. |
 
 `solana-ed25519-program` only exposes `no-entrypoint`, which omits the
@@ -93,9 +92,8 @@ program.
 
 `solana-ed25519-verify` exposes the stateless `Ed25519Verifier`, layout
 constants, `Ed25519SignatureOffsets`, and, with the `instruction` feature,
-SDK-compatible instruction constructors such as
-`new_ed25519_instruction_with_signature` and
-`try_new_ed25519_instruction_with_signature`.
+fallible instruction constructors `new_ed25519_instruction_with_signature`
+and `offsets_to_ed25519_instruction`.
 
 `solana-ed25519-program` calls the library from its Pinocchio processor.
 
