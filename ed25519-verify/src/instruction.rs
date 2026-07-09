@@ -142,7 +142,7 @@ pub fn new_ed25519_instruction_with_signature(
 }
 
 #[cfg(feature = "instruction")]
-fn serialize_signature_offsets(
+pub(crate) fn serialize_signature_offsets(
     output: &mut [u8],
     offsets: &SignatureOffsets,
 ) -> Result<(), ProgramError> {

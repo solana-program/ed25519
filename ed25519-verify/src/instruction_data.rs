@@ -31,7 +31,7 @@ pub(crate) struct SignatureFields<'a> {
 }
 
 /// Parses an 8-byte `SignatureOffsets` record from `input`.
-fn unpack_signature_offsets(input: &[u8]) -> Result<SignatureOffsets, ProgramError> {
+pub(crate) fn unpack_signature_offsets(input: &[u8]) -> Result<SignatureOffsets, ProgramError> {
     Ok(SignatureOffsets {
         signature_offset: decode_u16(input, 0)?,
         public_key_offset: decode_u16(input, 2)?,
