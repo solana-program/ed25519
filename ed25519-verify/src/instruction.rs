@@ -1,37 +1,35 @@
 //! Ed25519 instruction layout and construction helpers.
-// This was adapted from `solana-sdk/ed25519_program`.
 
 #[cfg(feature = "serde")]
 use serde_derive::{Deserialize, Serialize};
 #[cfg(feature = "instruction")]
-use {alloc::vec, solana_instruction::Instruction, solana_program_error::ProgramError};
+use {
+    alloc::vec, solana_instruction::Instruction, solana_program_error::ProgramError,
+    solana_pubkey::Pubkey,
+};
 
 pub const PUBKEY_SERIALIZED_SIZE: usize = 32;
 pub const SIGNATURE_SERIALIZED_SIZE: usize = 64;
-pub const SIGNATURE_OFFSETS_SERIALIZED_SIZE: usize = 14;
-/// The second header byte is padding; the native precompile ignores it.
+pub const SIGNATURE_OFFSETS_SERIALIZED_SIZE: usize = 8;
+/// The second header byte is padding, kept so the offset records start on an
+/// even byte.
 pub const SIGNATURE_OFFSETS_START: usize = 2;
 pub const DATA_START: usize = SIGNATURE_OFFSETS_SERIALIZED_SIZE + SIGNATURE_OFFSETS_START;
-pub const CURRENT_INSTRUCTION_INDEX: u16 = u16::MAX;
 
-/// Offsets of signature data within an ed25519 instruction.
+/// Offsets of one signature's fields within the instruction data. Every
+/// offset is implicitly into this instruction's own data; there is no wire
+/// representation for referencing another instruction.
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
-pub struct Ed25519SignatureOffsets {
-    /// Offset to 64-byte ed25519 signature.
+pub struct SignatureOffsets {
+    /// Offset to the 64-byte ed25519 signature.
     pub signature_offset: u16,
-    /// Instruction index that contains the signature, or `u16::MAX` for this instruction.
-    pub signature_instruction_index: u16,
-    /// Offset to 32-byte public key.
+    /// Offset to the 32-byte public key.
     pub public_key_offset: u16,
-    /// Instruction index that contains the public key, or `u16::MAX` for this instruction.
-    pub public_key_instruction_index: u16,
-    /// Offset to start of message data.
+    /// Offset to the start of the message data.
     pub message_data_offset: u16,
-    /// Size of message data in bytes.
+    /// Size of the message data in bytes.
     pub message_data_size: u16,
-    /// Instruction index that contains the message, or `u16::MAX` for this instruction.
-    pub message_instruction_index: u16,
 }
 
 /// Signs a message from the given private key bytes.
@@ -47,12 +45,14 @@ pub fn sign_message(
 }
 
 #[cfg(feature = "instruction")]
-/// Encode just the signature offsets in a single ed25519 instruction.
+/// Encode just the signature offsets in a single ed25519 instruction
+/// targeting `program_id`.
 ///
-/// Returns an error if `offsets.len()` cannot fit in the native program's
-/// one-byte signature count field.
+/// Returns an error if `offsets.len()` cannot fit in the one-byte signature
+/// count field.
 pub fn offsets_to_ed25519_instruction(
-    offsets: &[Ed25519SignatureOffsets],
+    program_id: Pubkey,
+    offsets: &[SignatureOffsets],
 ) -> Result<Instruction, ProgramError> {
     let num_signatures =
         u8::try_from(offsets.len()).map_err(|_| ProgramError::InvalidInstructionData)?;
@@ -72,18 +72,19 @@ pub fn offsets_to_ed25519_instruction(
     }
 
     Ok(Instruction {
-        program_id: solana_sdk_ids::ed25519_program::id(),
+        program_id,
         accounts: vec![],
         data: instruction_data,
     })
 }
 
 #[cfg(feature = "instruction")]
-/// Builds a single-signature ed25519 instruction.
+/// Builds a single-signature ed25519 instruction targeting `program_id`.
 ///
 /// Returns an error if the message length or any offset cannot be represented
 /// in the 16-bit wire fields.
 pub fn new_ed25519_instruction_with_signature(
+    program_id: Pubkey,
     message: &[u8],
     signature: &[u8; SIGNATURE_SERIALIZED_SIZE],
     pubkey: &[u8; PUBKEY_SERIALIZED_SIZE],
@@ -111,14 +112,11 @@ pub fn new_ed25519_instruction_with_signature(
     let mut instruction_data = vec![0; message_data_end];
     instruction_data[0] = 1;
 
-    let offsets = Ed25519SignatureOffsets {
+    let offsets = SignatureOffsets {
         signature_offset,
-        signature_instruction_index: CURRENT_INSTRUCTION_INDEX,
         public_key_offset,
-        public_key_instruction_index: CURRENT_INSTRUCTION_INDEX,
         message_data_offset,
         message_data_size,
-        message_instruction_index: CURRENT_INSTRUCTION_INDEX,
     };
     serialize_signature_offsets(
         &mut instruction_data[SIGNATURE_OFFSETS_START..DATA_START],
@@ -137,7 +135,7 @@ pub fn new_ed25519_instruction_with_signature(
     instruction_data[message_data_start..message_data_end].copy_from_slice(message);
 
     Ok(Instruction {
-        program_id: solana_sdk_ids::ed25519_program::id(),
+        program_id,
         accounts: vec![],
         data: instruction_data,
     })
@@ -146,19 +144,16 @@ pub fn new_ed25519_instruction_with_signature(
 #[cfg(feature = "instruction")]
 fn serialize_signature_offsets(
     output: &mut [u8],
-    offsets: &Ed25519SignatureOffsets,
+    offsets: &SignatureOffsets,
 ) -> Result<(), ProgramError> {
     if output.len() != SIGNATURE_OFFSETS_SERIALIZED_SIZE {
         return Err(ProgramError::InvalidInstructionData);
     }
 
     output[0..2].copy_from_slice(&offsets.signature_offset.to_le_bytes());
-    output[2..4].copy_from_slice(&offsets.signature_instruction_index.to_le_bytes());
-    output[4..6].copy_from_slice(&offsets.public_key_offset.to_le_bytes());
-    output[6..8].copy_from_slice(&offsets.public_key_instruction_index.to_le_bytes());
-    output[8..10].copy_from_slice(&offsets.message_data_offset.to_le_bytes());
-    output[10..12].copy_from_slice(&offsets.message_data_size.to_le_bytes());
-    output[12..14].copy_from_slice(&offsets.message_instruction_index.to_le_bytes());
+    output[2..4].copy_from_slice(&offsets.public_key_offset.to_le_bytes());
+    output[4..6].copy_from_slice(&offsets.message_data_offset.to_le_bytes());
+    output[6..8].copy_from_slice(&offsets.message_data_size.to_le_bytes());
 
     Ok(())
 }
@@ -168,39 +163,36 @@ mod tests {
     use super::*;
     use alloc::vec;
 
-    fn read_first_offsets(input: &[u8]) -> Ed25519SignatureOffsets {
-        Ed25519SignatureOffsets {
+    fn read_first_offsets(input: &[u8]) -> SignatureOffsets {
+        SignatureOffsets {
             signature_offset: u16::from_le_bytes(input[2..4].try_into().unwrap()),
-            signature_instruction_index: u16::from_le_bytes(input[4..6].try_into().unwrap()),
-            public_key_offset: u16::from_le_bytes(input[6..8].try_into().unwrap()),
-            public_key_instruction_index: u16::from_le_bytes(input[8..10].try_into().unwrap()),
-            message_data_offset: u16::from_le_bytes(input[10..12].try_into().unwrap()),
-            message_data_size: u16::from_le_bytes(input[12..14].try_into().unwrap()),
-            message_instruction_index: u16::from_le_bytes(input[14..16].try_into().unwrap()),
+            public_key_offset: u16::from_le_bytes(input[4..6].try_into().unwrap()),
+            message_data_offset: u16::from_le_bytes(input[6..8].try_into().unwrap()),
+            message_data_size: u16::from_le_bytes(input[8..10].try_into().unwrap()),
         }
     }
 
     #[test]
-    fn test_instruction_builder_produces_current_instruction_offsets() {
+    fn test_instruction_builder_produces_valid_offsets() {
         let signature = [1; SIGNATURE_SERIALIZED_SIZE];
         let pubkey = [2; PUBKEY_SERIALIZED_SIZE];
 
-        let instruction = new_ed25519_instruction_with_signature(b"message", &signature, &pubkey)
-            .expect("valid inputs");
+        let instruction = new_ed25519_instruction_with_signature(
+            Pubkey::default(),
+            b"message",
+            &signature,
+            &pubkey,
+        )
+        .expect("valid inputs");
         let offsets = read_first_offsets(&instruction.data);
 
         assert_eq!(instruction.accounts.len(), 0);
         assert_eq!(instruction.data[0], 1);
         assert_eq!(instruction.data[1], 0);
         assert_eq!(
-            offsets.signature_instruction_index,
-            CURRENT_INSTRUCTION_INDEX
+            offsets.public_key_offset,
+            u16::try_from(DATA_START).unwrap()
         );
-        assert_eq!(
-            offsets.public_key_instruction_index,
-            CURRENT_INSTRUCTION_INDEX
-        );
-        assert_eq!(offsets.message_instruction_index, CURRENT_INSTRUCTION_INDEX);
     }
 
     #[test]
@@ -210,17 +202,26 @@ mod tests {
         let max_message = vec![3; u16::MAX as usize];
         let oversized_message = vec![3; u16::MAX as usize + 1];
 
-        assert!(new_ed25519_instruction_with_signature(&max_message, &signature, &pubkey).is_ok());
-        assert!(
-            new_ed25519_instruction_with_signature(&oversized_message, &signature, &pubkey)
-                .is_err()
-        );
+        assert!(new_ed25519_instruction_with_signature(
+            Pubkey::default(),
+            &max_message,
+            &signature,
+            &pubkey
+        )
+        .is_ok());
+        assert!(new_ed25519_instruction_with_signature(
+            Pubkey::default(),
+            &oversized_message,
+            &signature,
+            &pubkey
+        )
+        .is_err());
     }
 
     #[test]
     fn test_offsets_builder_rejects_too_many_signatures() {
-        let offsets = vec![Ed25519SignatureOffsets::default(); u8::MAX as usize + 1];
+        let offsets = vec![SignatureOffsets::default(); u8::MAX as usize + 1];
 
-        assert!(offsets_to_ed25519_instruction(&offsets).is_err());
+        assert!(offsets_to_ed25519_instruction(Pubkey::default(), &offsets).is_err());
     }
 }

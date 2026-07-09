@@ -9,7 +9,7 @@ crate-type = ["rlib"]
 [features]
 default = []
 dev-context-only-utils = ["instruction"]
-instruction = ["dep:solana-instruction", "dep:solana-sdk-ids", "serde"]
+instruction = ["dep:solana-instruction", "dep:solana-pubkey"]
 serde = ["dep:serde", "dep:serde_derive"]
 
 [dependencies]
@@ -18,7 +18,7 @@ serde_derive = { workspace = true, optional = true }
 solana-curve25519 = { workspace = true }
 solana-instruction = { workspace = true, optional = true }
 solana-program-error = { workspace = true }
-solana-sdk-ids = { workspace = true, optional = true }
+solana-pubkey = { workspace = true, optional = true }
 solana-sha512-hasher = { workspace = true }
 
 [target.'cfg(not(any(target_os = "solana", target_arch = "bpf")))'.dependencies]

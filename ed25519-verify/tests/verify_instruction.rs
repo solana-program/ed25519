@@ -5,7 +5,7 @@ use {
             first_offsets, instruction_with_signature, signed_instruction, write_offsets,
             EDWARDS_IDENTITY_COMPRESSED, SMALL_ORDER_PUBLIC_KEY_COMPRESSED,
         },
-        Ed25519Verifier, CURRENT_INSTRUCTION_INDEX, DATA_START, SIGNATURE_SERIALIZED_SIZE,
+        Ed25519Verifier, DATA_START, SIGNATURE_SERIALIZED_SIZE,
     },
     solana_program_error::ProgramError,
 };
@@ -105,35 +105,6 @@ fn accepts_zero_signatures_only_when_data_has_just_header() {
     );
     assert_eq!(
         process_instruction(&[0, 0, 0]),
-        Err(ProgramError::InvalidInstructionData)
-    );
-}
-
-#[test]
-fn rejects_offsets_to_other_instructions() {
-    let mut instruction = signed_instruction(&[b"hello ed25519"]);
-    let mut offsets = first_offsets(&instruction);
-    offsets.signature_instruction_index = 0;
-    write_offsets(&mut instruction[2..DATA_START], &offsets);
-
-    assert_eq!(
-        process_instruction(&instruction),
-        Err(ProgramError::InvalidInstructionData)
-    );
-
-    offsets.signature_instruction_index = CURRENT_INSTRUCTION_INDEX;
-    offsets.public_key_instruction_index = 0;
-    write_offsets(&mut instruction[2..DATA_START], &offsets);
-    assert_eq!(
-        process_instruction(&instruction),
-        Err(ProgramError::InvalidInstructionData)
-    );
-
-    offsets.public_key_instruction_index = CURRENT_INSTRUCTION_INDEX;
-    offsets.message_instruction_index = 0;
-    write_offsets(&mut instruction[2..DATA_START], &offsets);
-    assert_eq!(
-        process_instruction(&instruction),
         Err(ProgramError::InvalidInstructionData)
     );
 }

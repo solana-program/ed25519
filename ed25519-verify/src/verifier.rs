@@ -1,8 +1,7 @@
 use {
     crate::{
         instruction_data::{get_signature_fields, iter_signature_offsets},
-        scalar, Ed25519SignatureOffsets, CURRENT_INSTRUCTION_INDEX, PUBKEY_SERIALIZED_SIZE,
-        SIGNATURE_SERIALIZED_SIZE,
+        scalar, PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE,
     },
     solana_curve25519::{
         edwards::{
@@ -40,7 +39,9 @@ impl Ed25519Verifier {
     /// describes, returning an error on the first failure.
     pub fn verify_instruction(&self, instruction_data: &[u8]) -> Result<(), ProgramError> {
         for offsets in iter_signature_offsets(instruction_data)? {
-            self.verify_signature_offsets(instruction_data, &offsets?)?;
+            let offsets = offsets?;
+            let fields = get_signature_fields(instruction_data, &offsets)?;
+            self.verify_signature(fields.signature, fields.public_key, fields.message)?;
         }
 
         Ok(())
@@ -88,27 +89,6 @@ impl Ed25519Verifier {
 
         Ok(())
     }
-
-    /// Validates a single signature entry described by `offsets`.
-    fn verify_signature_offsets(
-        &self,
-        instruction_data: &[u8],
-        offsets: &Ed25519SignatureOffsets,
-    ) -> Result<(), ProgramError> {
-        if !references_current_instruction(offsets) {
-            return Err(ProgramError::InvalidInstructionData);
-        }
-
-        let fields = get_signature_fields(instruction_data, offsets)?;
-        self.verify_signature(fields.signature, fields.public_key, fields.message)
-    }
-}
-
-/// Returns `true` when every offset field references the current instruction.
-fn references_current_instruction(offsets: &Ed25519SignatureOffsets) -> bool {
-    offsets.signature_instruction_index == CURRENT_INSTRUCTION_INDEX
-        && offsets.public_key_instruction_index == CURRENT_INSTRUCTION_INDEX
-        && offsets.message_instruction_index == CURRENT_INSTRUCTION_INDEX
 }
 
 fn compute_challenge(signature_r: &[u8; 32], public_key: &[u8; 32], message: &[u8]) -> [u8; 32] {

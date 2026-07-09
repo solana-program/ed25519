@@ -12,9 +12,12 @@ Pinocchio's lazy instruction context to avoid up-front account parsing.
 ## Motivation
 
 The goal is to migrate the native [ed25519 precompile] to SBF so it can be
-maintained and deployed like any other on-chain program. The instruction format
-is intentionally identical to the precompile for current-instruction data, so
-clients can reuse the standard Ed25519 instruction layout.
+maintained and deployed like any other on-chain program. The precompile is
+expected to be removed from the runtime, so this program does not preserve
+byte-for-byte compatibility with its instruction format: since an SBF program
+only ever receives its own instruction data, the precompile's
+cross-instruction reference fields have no meaning here and are dropped
+entirely, giving a more compact encoding.
 
 Programs can either depend on `solana-ed25519-verify` directly or invoke
 `solana-ed25519-program` by CPI and act on the explicit pass/fail result,
@@ -38,30 +41,27 @@ feature before SBF execution will work.
 ## Instruction format
 
 ```text
-[0]                   number of signatures (u8)
-[1]                   padding, ignored
-[2 .. 2 + 14*N]       N x Ed25519SignatureOffsets records (14 bytes each, LE)
-[2 + 14*N ..]         payload: public keys, signatures, messages (order flexible)
+[0]                  number of signatures (u8)
+[1]                  padding, ignored
+[2 .. 2 + 8*N]       N x SignatureOffsets records (8 bytes each, LE)
+[2 + 8*N ..]         payload: public keys, signatures, messages (order flexible)
 ```
 
-Each offset record matches `Ed25519SignatureOffsets` exposed by this crate:
+Each offset record matches `SignatureOffsets` exposed by this crate:
 
 ```text
 [0..2]    signature_offset
-[2..4]    signature_instruction_index
-[4..6]    public_key_offset
-[6..8]    public_key_instruction_index
-[8..10]   message_data_offset
-[10..12]  message_data_size
-[12..14]  message_instruction_index
+[2..4]    public_key_offset
+[4..6]    message_data_offset
+[6..8]    message_data_size
 ```
+
+Every offset implicitly refers to this instruction's own data. Unlike the
+native precompile, there is no wire representation for referencing another
+instruction in the transaction.
 
 ### Constraints
 
-- **All instruction-index fields must be `u16::MAX`.** The native precompile
-  uses this sentinel for the current instruction. An SBF program receives only
-  its own instruction data; cross-instruction references require a future
-  runtime change.
 - **ZIP-215 verification.** The program uses the cofactored equation
   `[8](S·B − H(R‖A‖M)·A) == [8]R` with canonical `S`, following
   [ZIP-215](https://zips.z.cash/zip-0215). Small-order `R` and public-key
@@ -82,7 +82,7 @@ Each offset record matches `Ed25519SignatureOffsets` exposed by this crate:
 |---|---|---|
 | `instruction` | off | Enables alloc-based `Instruction` construction helpers. |
 | `dev-context-only-utils` | off | Enables `instruction` and exposes `test_utils`, the instruction builders shared by this crate's and `solana-ed25519-program`'s tests. |
-| `serde` | off | Derives serde traits for `Ed25519SignatureOffsets`. |
+| `serde` | off | Derives serde traits for `SignatureOffsets`. |
 
 `solana-ed25519-program` only exposes `no-entrypoint`, which omits the
 Pinocchio entrypoint when embedding the program crate in tests or another
@@ -91,9 +91,12 @@ program.
 ## Public API
 
 `solana-ed25519-verify` exposes the stateless `Ed25519Verifier`, layout
-constants, `Ed25519SignatureOffsets`, and, with the `instruction` feature,
-fallible instruction constructors `new_ed25519_instruction_with_signature`
-and `offsets_to_ed25519_instruction`.
+constants, `SignatureOffsets`, and, with the `instruction` feature, fallible
+instruction constructors `new_ed25519_instruction_with_signature` and
+`offsets_to_ed25519_instruction`. Both constructors take the target
+`program_id` explicitly, since this format is specific to wherever this
+program (or one embedding this library) is deployed rather than the fixed
+native precompile address.
 
 `solana-ed25519-program` calls the library from its Pinocchio processor.
 

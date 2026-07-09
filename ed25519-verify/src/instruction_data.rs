@@ -1,21 +1,20 @@
 //! Parsing helpers for the ed25519 instruction data wire format.
 //!
-//! The on-wire layout matches the native ed25519 precompile:
+//! The on-wire layout:
 //!
 //! ```text
 //! Byte 0             : num_signatures (u8)
 //! Byte 1             : padding, ignored
-//! Bytes 2 ...        : num_signatures x Ed25519SignatureOffsets (14 bytes each, LE)
+//! Bytes 2 ...        : num_signatures x SignatureOffsets (8 bytes each, LE)
 //! Remaining bytes    : raw payload (public keys, signatures, messages)
 //! ```
 //!
-//! The native precompile treats instruction index `u16::MAX` as "current
-//! instruction". This SBF program receives only its own instruction data, so
-//! all index fields must use that sentinel.
+//! Every offset implicitly refers to this instruction's own data; there is no
+//! wire representation for referencing another instruction.
 
 use {
     crate::{
-        Ed25519SignatureOffsets, PUBKEY_SERIALIZED_SIZE, SIGNATURE_OFFSETS_SERIALIZED_SIZE,
+        SignatureOffsets, PUBKEY_SERIALIZED_SIZE, SIGNATURE_OFFSETS_SERIALIZED_SIZE,
         SIGNATURE_OFFSETS_START, SIGNATURE_SERIALIZED_SIZE,
     },
     solana_program_error::ProgramError,
@@ -31,16 +30,13 @@ pub(crate) struct SignatureFields<'a> {
     pub(crate) message: &'a [u8],
 }
 
-/// Parses a 14-byte `Ed25519SignatureOffsets` record from `input`.
-fn unpack_signature_offsets(input: &[u8]) -> Result<Ed25519SignatureOffsets, ProgramError> {
-    Ok(Ed25519SignatureOffsets {
+/// Parses an 8-byte `SignatureOffsets` record from `input`.
+fn unpack_signature_offsets(input: &[u8]) -> Result<SignatureOffsets, ProgramError> {
+    Ok(SignatureOffsets {
         signature_offset: decode_u16(input, 0)?,
-        signature_instruction_index: decode_u16(input, 2)?,
-        public_key_offset: decode_u16(input, 4)?,
-        public_key_instruction_index: decode_u16(input, 6)?,
-        message_data_offset: decode_u16(input, 8)?,
-        message_data_size: decode_u16(input, 10)?,
-        message_instruction_index: decode_u16(input, 12)?,
+        public_key_offset: decode_u16(input, 2)?,
+        message_data_offset: decode_u16(input, 4)?,
+        message_data_size: decode_u16(input, 6)?,
     })
 }
 
@@ -80,7 +76,7 @@ fn get_instruction_data_array<const N: usize>(
 /// Extracts all signature fields for one entry from raw instruction data.
 pub(crate) fn get_signature_fields<'a>(
     instruction_data: &'a [u8],
-    offsets: &'a Ed25519SignatureOffsets,
+    offsets: &'a SignatureOffsets,
 ) -> Result<SignatureFields<'a>, ProgramError> {
     Ok(SignatureFields {
         signature: get_instruction_data_array(instruction_data, offsets.signature_offset)?,
@@ -94,15 +90,13 @@ pub(crate) fn get_signature_fields<'a>(
 }
 
 /// Parses the leading `num_signatures` byte and returns an iterator that yields
-/// one `Ed25519SignatureOffsets` per entry.
+/// one `SignatureOffsets` per entry.
 ///
 /// `num_signatures == 0` is valid only when the buffer is exactly the 2-byte
-/// header. The padding byte is intentionally ignored for nonzero counts,
-/// matching the native precompile.
+/// header. The padding byte is intentionally ignored for nonzero counts.
 pub(crate) fn iter_signature_offsets(
     input: &[u8],
-) -> Result<impl Iterator<Item = Result<Ed25519SignatureOffsets, ProgramError>> + '_, ProgramError>
-{
+) -> Result<impl Iterator<Item = Result<SignatureOffsets, ProgramError>> + '_, ProgramError> {
     if input.len() < SIGNATURE_OFFSETS_START {
         return Err(ProgramError::InvalidInstructionData);
     }

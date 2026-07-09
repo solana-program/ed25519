@@ -2236,7 +2236,7 @@ dependencies = [
  "solana-ed25519-verify",
  "solana-instruction",
  "solana-program-error",
- "solana-sdk-ids",
+ "solana-pubkey 4.1.0",
  "solana-sha512-hasher",
 ]
 
