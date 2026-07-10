@@ -1,31 +1,71 @@
 use {
-    ed25519_dalek::{Signature, VerifyingKey},
+    ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey},
     solana_ed25519_verify::{
-        test_utils::{
-            first_offsets, instruction_with_signature, signed_instruction, write_offsets,
-            EDWARDS_IDENTITY_COMPRESSED, SMALL_ORDER_PUBLIC_KEY_COMPRESSED,
-        },
-        Ed25519Verifier, DATA_START, SIGNATURE_SERIALIZED_SIZE,
+        ed25519_verify_instruction, Ed25519Verifier, PUBKEY_SERIALIZED_SIZE,
+        SIGNATURE_SERIALIZED_SIZE,
     },
     solana_program_error::ProgramError,
+    solana_pubkey::Pubkey,
 };
 
-fn process_instruction(instruction_data: &[u8]) -> Result<(), ProgramError> {
-    Ed25519Verifier::new().verify_instruction(instruction_data)
+const EDWARDS_IDENTITY_COMPRESSED: [u8; PUBKEY_SERIALIZED_SIZE] = [
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const SMALL_ORDER_PUBLIC_KEY_COMPRESSED: [u8; PUBKEY_SERIALIZED_SIZE] = [
+    0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f,
+];
+
+fn signed_payload(
+    message: &[u8],
+) -> (
+    [u8; SIGNATURE_SERIALIZED_SIZE],
+    [u8; PUBKEY_SERIALIZED_SIZE],
+) {
+    let signing_key = SigningKey::from_bytes(&[7; 32]);
+    (
+        signing_key.sign(message).to_bytes(),
+        signing_key.verifying_key().to_bytes(),
+    )
+}
+
+fn verify_signature(
+    signature: &[u8; SIGNATURE_SERIALIZED_SIZE],
+    public_key: &[u8; PUBKEY_SERIALIZED_SIZE],
+    message: &[u8],
+) -> Result<(), ProgramError> {
+    Ed25519Verifier::new().verify_signature(signature, public_key, message)
 }
 
 #[test]
 fn verifies_matching_signature() {
-    let instruction = signed_instruction(&[b"hello ed25519"]);
+    let message = b"hello ed25519";
+    let (signature, public_key) = signed_payload(message);
 
-    assert_eq!(process_instruction(&instruction), Ok(()));
+    assert_eq!(verify_signature(&signature, &public_key, message), Ok(()));
 }
 
 #[test]
-fn verifies_multiple_signatures() {
-    let instruction = signed_instruction(&[b"hello ed25519", b"second message"]);
+fn constructs_program_instruction_with_direct_layout() {
+    let program_id = Pubkey::new_unique();
+    let message = b"hello ed25519";
+    let (signature, public_key) = signed_payload(message);
 
-    assert_eq!(process_instruction(&instruction), Ok(()));
+    let instruction = ed25519_verify_instruction(&program_id, &public_key, &signature, message);
+
+    assert_eq!(instruction.program_id, program_id);
+    assert!(instruction.accounts.is_empty());
+    assert_eq!(&instruction.data[..PUBKEY_SERIALIZED_SIZE], &public_key);
+    assert_eq!(
+        &instruction.data
+            [PUBKEY_SERIALIZED_SIZE..PUBKEY_SERIALIZED_SIZE + SIGNATURE_SERIALIZED_SIZE],
+        &signature
+    );
+    assert_eq!(
+        &instruction.data[PUBKEY_SERIALIZED_SIZE + SIGNATURE_SERIALIZED_SIZE..],
+        message
+    );
 }
 
 #[test]
@@ -39,200 +79,111 @@ fn accepts_zip215_small_order_public_key_vector_rejected_by_strict_verification(
     let dalek_signature = Signature::from_bytes(&signature);
     assert!(dalek_key.verify_strict(message, &dalek_signature).is_err());
 
-    let instruction =
-        instruction_with_signature(message, &signature, &SMALL_ORDER_PUBLIC_KEY_COMPRESSED);
-    assert_eq!(process_instruction(&instruction), Ok(()));
+    assert_eq!(
+        verify_signature(&signature, &SMALL_ORDER_PUBLIC_KEY_COMPRESSED, message),
+        Ok(())
+    );
 }
 
 #[test]
 fn rejects_wrong_public_key() {
-    let mut instruction = signed_instruction(&[b"hello ed25519"]);
-    let offsets = first_offsets(&instruction);
-    instruction[usize::from(offsets.public_key_offset)] ^= 1;
+    let message = b"hello ed25519";
+    let (signature, mut public_key) = signed_payload(message);
+    public_key[0] ^= 1;
 
     assert_eq!(
-        process_instruction(&instruction),
+        verify_signature(&signature, &public_key, message),
         Err(ProgramError::InvalidArgument)
     );
 }
 
 #[test]
 fn rejects_corrupted_signature() {
-    let mut instruction = signed_instruction(&[b"hello ed25519"]);
-    let offsets = first_offsets(&instruction);
-    instruction[usize::from(offsets.signature_offset)] ^= 1;
+    let message = b"hello ed25519";
+    let (mut signature, public_key) = signed_payload(message);
+    signature[0] ^= 1;
 
     assert_eq!(
-        process_instruction(&instruction),
+        verify_signature(&signature, &public_key, message),
         Err(ProgramError::InvalidArgument)
     );
 }
 
 #[test]
 fn rejects_tampered_message() {
-    let mut instruction = signed_instruction(&[b"hello ed25519"]);
-    let offsets = first_offsets(&instruction);
-    instruction[usize::from(offsets.message_data_offset)] ^= 1;
+    let message = b"hello ed25519";
+    let (signature, public_key) = signed_payload(message);
 
     assert_eq!(
-        process_instruction(&instruction),
+        verify_signature(&signature, &public_key, b"hello ed25518"),
         Err(ProgramError::InvalidArgument)
     );
 }
 
 #[test]
-fn rejects_short_instruction() {
-    assert_eq!(
-        process_instruction(&[]),
-        Err(ProgramError::InvalidInstructionData)
-    );
-    assert_eq!(
-        process_instruction(&[1]),
-        Err(ProgramError::InvalidInstructionData)
-    );
-    assert_eq!(
-        process_instruction(&[1, 0]),
-        Err(ProgramError::InvalidInstructionData)
-    );
-}
-
-#[test]
-fn accepts_zero_signatures_only_when_data_has_just_header() {
-    assert_eq!(process_instruction(&[0, 0]), Ok(()));
-    assert_eq!(
-        process_instruction(&[0]),
-        Err(ProgramError::InvalidInstructionData)
-    );
-    assert_eq!(
-        process_instruction(&[0, 0, 0]),
-        Err(ProgramError::InvalidInstructionData)
-    );
-}
-
-#[test]
-fn rejects_out_of_bounds_offsets() {
-    let mut instruction = signed_instruction(&[b"hello ed25519"]);
-    let mut offsets = first_offsets(&instruction);
-    offsets.message_data_size = u16::MAX;
-    write_offsets(&mut instruction[2..DATA_START], &offsets);
-
-    assert_eq!(
-        process_instruction(&instruction),
-        Err(ProgramError::InvalidInstructionData)
-    );
-}
-
-#[test]
 fn rejects_non_canonical_s_scalar() {
-    let mut instruction = signed_instruction(&[b"hello ed25519"]);
-    let offsets = first_offsets(&instruction);
-    let s_offset = usize::from(offsets.signature_offset) + 32;
-    instruction[s_offset..s_offset + 32].copy_from_slice(&[
+    let message = b"hello ed25519";
+    let (mut signature, public_key) = signed_payload(message);
+    signature[32..64].copy_from_slice(&[
         0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde,
         0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x10,
     ]);
 
     assert_eq!(
-        process_instruction(&instruction),
+        verify_signature(&signature, &public_key, message),
         Err(ProgramError::InvalidArgument)
     );
 }
 
 #[test]
 fn rejects_low_order_r() {
-    let mut instruction = signed_instruction(&[b"hello ed25519"]);
-    let offsets = first_offsets(&instruction);
-    let r_offset = usize::from(offsets.signature_offset);
-    instruction[r_offset..r_offset + 32].copy_from_slice(&[
+    let message = b"hello ed25519";
+    let (mut signature, public_key) = signed_payload(message);
+    signature[..32].copy_from_slice(&[
         0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00,
     ]);
 
     assert_eq!(
-        process_instruction(&instruction),
+        verify_signature(&signature, &public_key, message),
         Err(ProgramError::InvalidArgument)
     );
 }
 
 #[test]
 fn rejects_low_order_public_key() {
-    let mut instruction = signed_instruction(&[b"hello ed25519"]);
-    let offsets = first_offsets(&instruction);
-    let public_key_offset = usize::from(offsets.public_key_offset);
-    instruction[public_key_offset..public_key_offset + 32]
-        .copy_from_slice(&SMALL_ORDER_PUBLIC_KEY_COMPRESSED);
+    let message = b"hello ed25519";
+    let (signature, _) = signed_payload(message);
 
     assert_eq!(
-        process_instruction(&instruction),
+        verify_signature(&signature, &SMALL_ORDER_PUBLIC_KEY_COMPRESSED, message),
         Err(ProgramError::InvalidArgument)
     );
 }
 
 #[test]
 fn rejects_invalid_public_key() {
-    let mut instruction = signed_instruction(&[b"hello ed25519"]);
-    let offsets = first_offsets(&instruction);
-    let public_key_offset = usize::from(offsets.public_key_offset);
-    instruction[public_key_offset..public_key_offset + 32].copy_from_slice(&[0xff; 32]);
+    let message = b"hello ed25519";
+    let (signature, _) = signed_payload(message);
 
     assert_eq!(
-        process_instruction(&instruction),
+        verify_signature(&signature, &[0xff; PUBKEY_SERIALIZED_SIZE], message),
         Err(ProgramError::InvalidArgument)
     );
 }
 
 #[test]
-fn ignores_padding_byte() {
-    let mut instruction = signed_instruction(&[b"hello ed25519"]);
-    instruction[1] = 0xff;
-
-    assert_eq!(process_instruction(&instruction), Ok(()));
-}
-
-#[test]
-fn signature_offset_points_to_exactly_64_bytes() {
-    let mut instruction = signed_instruction(&[b"hello ed25519"]);
-    let mut offsets = first_offsets(&instruction);
-    offsets.signature_offset = u16::try_from(instruction.len() - SIGNATURE_SERIALIZED_SIZE + 1)
-        .expect("test instruction length fits u16");
-    write_offsets(&mut instruction[2..DATA_START], &offsets);
-
-    assert_eq!(
-        process_instruction(&instruction),
-        Err(ProgramError::InvalidInstructionData)
-    );
-}
-
-#[test]
 fn accepts_valid_zip215_pure_torsion_signature() {
-    // R = Identity Point
-    let signature_r = EDWARDS_IDENTITY_COMPRESSED;
-    // S = Zero Scalar
-    let signature_s = [0u8; 32];
+    let mut signature = [0u8; SIGNATURE_SERIALIZED_SIZE];
+    signature[..32].copy_from_slice(&EDWARDS_IDENTITY_COMPRESSED);
 
-    let mut signature = [0u8; 64];
-    signature[..32].copy_from_slice(&signature_r);
-    signature[32..].copy_from_slice(&signature_s);
-
-    // A = A non-identity pure torsion point.
-    let pubkey = SMALL_ORDER_PUBLIC_KEY_COMPRESSED;
-
-    // Under ZIP-215: [8](S*B) = [8]R + [8](c*A)
-    // Since S=0 and R=O, this becomes O = O + c*[8]A.
-    // Because A is an 8-torsion point, [8]A = O.
-    // The equation is O = O + O, which is always true.
-    // This signature must be accepted for any message.
-
-    // The buggy verification failed for some challenge values, so try a couple
-    // messages in a loop to cover multiple challenges.
     for i in 0..20 {
         let message = vec![i as u8; 10];
-        let instruction = instruction_with_signature(&message, &signature, &pubkey);
 
         assert_eq!(
-            process_instruction(&instruction),
+            verify_signature(&signature, &SMALL_ORDER_PUBLIC_KEY_COMPRESSED, &message),
             Ok(()),
             "message index {i} is failing"
         );

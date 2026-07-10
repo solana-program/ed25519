@@ -1,8 +1,5 @@
 use {
-    crate::{
-        instruction_data::{get_signature_fields, iter_signature_offsets},
-        scalar, PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE,
-    },
+    crate::{scalar, PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE},
     solana_curve25519::{
         edwards::{
             multiply_edwards, multiscalar_multiply_edwards, subtract_edwards, PodEdwardsPoint,
@@ -36,18 +33,6 @@ impl Ed25519Verifier {
     /// Initializes a new verifier.
     pub const fn new() -> Self {
         Self
-    }
-
-    /// Parses `instruction_data` and verifies every ed25519 signature it
-    /// describes, returning an error on the first failure.
-    pub fn verify_instruction(&self, instruction_data: &[u8]) -> Result<(), ProgramError> {
-        for offsets in iter_signature_offsets(instruction_data)? {
-            let offsets = offsets?;
-            let fields = get_signature_fields(instruction_data, &offsets)?;
-            self.verify_signature(fields.signature, fields.public_key, fields.message)?;
-        }
-
-        Ok(())
     }
 
     /// Performs ZIP-215 Ed25519 verification for one signature.

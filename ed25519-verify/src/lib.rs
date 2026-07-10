@@ -2,42 +2,23 @@
 
 //! Stateless Ed25519 verification utilities for Solana programs.
 //!
-//! This crate contains the reusable verifier and instruction-data helpers used
-//! by `solana-ed25519-program`. It is intended for programs that want to verify
-//! Ed25519 signatures directly without invoking the standalone verifier
-//! program.
+//! This crate contains the reusable verifier used by
+//! `solana-ed25519-program`. Programs can also depend on it directly to verify
+//! Ed25519 signatures without invoking the standalone verifier program.
 //!
-//! Instruction data layout:
-//!
-//! ```text
-//! [num_signatures: u8]
-//! [padding: u8]
-//! [SignatureOffsets x num_signatures]   (8 bytes each, little-endian)
-//! [public key || signature || message ...]   (payload, order flexible)
-//! ```
-//!
-//! Every offset implicitly refers to this instruction's own data. There is no
-//! cross-instruction reference, unlike the native ed25519 precompile. The
-//! verifier performs ZIP-215 verification with canonical `S`.
+//! The verifier performs ZIP-215 verification with canonical `S`.
 
 #[cfg(feature = "instruction")]
 extern crate alloc;
-#[cfg(test)]
-extern crate std;
 
-mod instruction;
-mod instruction_data;
+#[cfg(feature = "instruction")]
+pub mod program;
 mod scalar;
-#[cfg(feature = "dev-context-only-utils")]
-pub mod test_utils;
 mod verifier;
 
-#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
-pub use instruction::sign_message;
 #[cfg(feature = "instruction")]
-pub use instruction::{new_ed25519_instruction_with_signature, offsets_to_ed25519_instruction};
-pub use instruction::{
-    SignatureOffsets, DATA_START, PUBKEY_SERIALIZED_SIZE, SIGNATURE_OFFSETS_SERIALIZED_SIZE,
-    SIGNATURE_OFFSETS_START, SIGNATURE_SERIALIZED_SIZE,
-};
+pub use program::ed25519_verify_instruction;
 pub use verifier::Ed25519Verifier;
+
+pub const PUBKEY_SERIALIZED_SIZE: usize = 32;
+pub const SIGNATURE_SERIALIZED_SIZE: usize = 64;

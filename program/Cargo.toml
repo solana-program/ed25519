@@ -8,16 +8,16 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []
-no-entrypoint = []
 
 [dependencies]
 pinocchio = { workspace = true }
 solana-ed25519-verify = { workspace = true, default-features = false }
 
 [dev-dependencies]
+ed25519-dalek = { workspace = true }
 mollusk-svm = { workspace = true }
 solana-account = { workspace = true }
-solana-ed25519-verify = { workspace = true, features = ["dev-context-only-utils"] }
+solana-ed25519-verify = { workspace = true, features = ["instruction"] }
 solana-instruction = { workspace = true }
 solana-program-runtime = { workspace = true }
 solana-pubkey = { workspace = true }

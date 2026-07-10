@@ -2215,6 +2215,7 @@ checksum = "21e14a4f604117f379840956a8fc8695e4c84f5b0ebed192f31f60d9b85d581d"
 name = "solana-ed25519-program"
 version = "4.0.0"
 dependencies = [
+ "ed25519-dalek",
  "mollusk-svm",
  "pinocchio",
  "solana-account",
@@ -2230,8 +2231,6 @@ name = "solana-ed25519-verify"
 version = "4.0.0"
 dependencies = [
  "ed25519-dalek",
- "serde",
- "serde_derive",
  "solana-curve25519",
  "solana-ed25519-verify",
  "solana-instruction",
