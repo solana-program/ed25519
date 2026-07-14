@@ -1,0 +1,27 @@
+[package]
+name = "solana-ed25519-verify"
+version = "4.0.0"
+edition = "2021"
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+default = []
+# Enables the client-side constructor for invoking the standalone program.
+instruction = ["dep:solana-instruction", "dep:solana-pubkey"]
+
+[dependencies]
+solana-curve25519 = { workspace = true }
+solana-instruction = { workspace = true, optional = true }
+solana-program-error = { workspace = true }
+solana-pubkey = { workspace = true, optional = true }
+solana-sha512-hasher = { workspace = true }
+
+[dev-dependencies]
+ed25519-dalek = { workspace = true }
+solana-ed25519-verify = { path = ".", features = ["instruction"] }
+solana-pubkey = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,11 +1,11 @@
 use {
-    common::{
-        first_offsets, instruction_with_signature, signed_instruction, EDWARDS_IDENTITY_COMPRESSED,
-        SMALL_ORDER_PUBLIC_KEY_COMPRESSED,
-    },
+    ed25519_dalek::{Signer, SigningKey},
     mollusk_svm::Mollusk,
-    solana_ed25519_program::SIGNATURE_SERIALIZED_SIZE,
-    solana_instruction::Instruction,
+    solana_account::Account,
+    solana_ed25519_verify::{
+        ed25519_verify_instruction, PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE,
+    },
+    solana_instruction::{AccountMeta, Instruction},
     solana_program_runtime::{
         invoke_context::InvokeContext,
         solana_sbpf::{
@@ -18,11 +18,19 @@ use {
     std::{env, error::Error, io, mem::size_of, path::PathBuf, slice},
 };
 
-mod common;
-
 const PROGRAM_SO_STEM: &str = "solana_ed25519_program";
 const SINGLE_MESSAGE: &[u8] = b"deterministic ed25519 verify benchmark";
-const SECOND_MESSAGE: &[u8] = b"second deterministic ed25519 verify benchmark";
+const PUBLIC_KEY_OFFSET: usize = 0;
+const MESSAGE_OFFSET: usize = PUBKEY_SERIALIZED_SIZE + SIGNATURE_SERIALIZED_SIZE;
+
+const EDWARDS_IDENTITY_COMPRESSED: [u8; PUBKEY_SERIALIZED_SIZE] = [
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+const SMALL_ORDER_PUBLIC_KEY_COMPRESSED: [u8; PUBKEY_SERIALIZED_SIZE] = [
+    0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f,
+];
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -142,12 +150,29 @@ fn instruction(program_id: Pubkey, data: Vec<u8>) -> Instruction {
     }
 }
 
+fn signed_instruction(program_id: Pubkey, message: &[u8]) -> Instruction {
+    let signing_key = SigningKey::from_bytes(&[7; 32]);
+    let signature = signing_key.sign(message).to_bytes();
+    let public_key = signing_key.verifying_key().to_bytes();
+
+    ed25519_verify_instruction(&program_id, &public_key, &signature, message)
+}
+
+fn instruction_with_signature(
+    program_id: Pubkey,
+    message: &[u8],
+    signature: &[u8; SIGNATURE_SERIALIZED_SIZE],
+    public_key: &[u8; PUBKEY_SERIALIZED_SIZE],
+) -> Instruction {
+    ed25519_verify_instruction(&program_id, public_key, signature, message)
+}
+
 #[test]
 fn verifies_single_signature_on_sbf_and_reports_compute_units() {
     let Some((mollusk, program_id)) = make_mollusk() else {
         return;
     };
-    let ix = instruction(program_id, signed_instruction(&[SINGLE_MESSAGE]));
+    let ix = signed_instruction(program_id, SINGLE_MESSAGE);
     let result = mollusk.process_instruction(&ix, &[]);
 
     assert!(
@@ -163,29 +188,6 @@ fn verifies_single_signature_on_sbf_and_reports_compute_units() {
 }
 
 #[test]
-fn verifies_multiple_signatures_on_sbf_and_reports_compute_units() {
-    let Some((mollusk, program_id)) = make_mollusk() else {
-        return;
-    };
-    let ix = instruction(
-        program_id,
-        signed_instruction(&[SINGLE_MESSAGE, SECOND_MESSAGE]),
-    );
-    let result = mollusk.process_instruction(&ix, &[]);
-
-    assert!(
-        result.program_result.is_ok(),
-        "verify failed: {:?}",
-        result.program_result
-    );
-    println!(
-        "ed25519 verify: 2 signatures, {} total message bytes, {} CUs",
-        SINGLE_MESSAGE.len() + SECOND_MESSAGE.len(),
-        result.compute_units_consumed
-    );
-}
-
-#[test]
 fn accepts_zip215_small_order_public_key_vector_on_sbf() {
     let Some((mollusk, program_id)) = make_mollusk() else {
         return;
@@ -193,9 +195,11 @@ fn accepts_zip215_small_order_public_key_vector_on_sbf() {
     let message = b"zip215 low-order public key vector";
     let mut signature = [0; SIGNATURE_SERIALIZED_SIZE];
     signature[..EDWARDS_IDENTITY_COMPRESSED.len()].copy_from_slice(&EDWARDS_IDENTITY_COMPRESSED);
-    let ix = instruction(
+    let ix = instruction_with_signature(
         program_id,
-        instruction_with_signature(message, &signature, &SMALL_ORDER_PUBLIC_KEY_COMPRESSED),
+        message,
+        &signature,
+        &SMALL_ORDER_PUBLIC_KEY_COMPRESSED,
     );
     let result = mollusk.process_instruction(&ix, &[]);
 
@@ -211,11 +215,10 @@ fn rejects_tampered_message_on_sbf() {
     let Some((mollusk, program_id)) = make_mollusk() else {
         return;
     };
-    let mut data = signed_instruction(&[SINGLE_MESSAGE]);
-    let offsets = first_offsets(&data);
-    data[usize::from(offsets.message_data_offset)] ^= 1;
+    let mut ix = signed_instruction(program_id, SINGLE_MESSAGE);
+    ix.data[MESSAGE_OFFSET] ^= 1;
 
-    let result = mollusk.process_instruction(&instruction(program_id, data), &[]);
+    let result = mollusk.process_instruction(&ix, &[]);
     assert!(
         result.program_result.is_err(),
         "expected failure on tampered message, got: {:?}",
@@ -228,14 +231,46 @@ fn rejects_tampered_public_key_on_sbf() {
     let Some((mollusk, program_id)) = make_mollusk() else {
         return;
     };
-    let mut data = signed_instruction(&[SINGLE_MESSAGE]);
-    let offsets = first_offsets(&data);
-    data[usize::from(offsets.public_key_offset)] ^= 1;
+    let mut ix = signed_instruction(program_id, SINGLE_MESSAGE);
+    ix.data[PUBLIC_KEY_OFFSET] ^= 1;
 
-    let result = mollusk.process_instruction(&instruction(program_id, data), &[]);
+    let result = mollusk.process_instruction(&ix, &[]);
     assert!(
         result.program_result.is_err(),
         "expected failure on tampered public key, got: {:?}",
+        result.program_result
+    );
+}
+
+#[test]
+fn rejects_accounts_on_sbf() {
+    let Some((mollusk, program_id)) = make_mollusk() else {
+        return;
+    };
+    let account = Pubkey::new_unique();
+    let mut ix = signed_instruction(program_id, SINGLE_MESSAGE);
+    ix.accounts = vec![AccountMeta::new_readonly(account, false)];
+    let accounts = [(account, Account::default())];
+
+    let result = mollusk.process_instruction(&ix, &accounts);
+    assert!(
+        result.program_result.is_err(),
+        "expected failure when accounts are provided, got: {:?}",
+        result.program_result
+    );
+}
+
+#[test]
+fn rejects_short_instruction_on_sbf() {
+    let Some((mollusk, program_id)) = make_mollusk() else {
+        return;
+    };
+    let ix = instruction(program_id, vec![0; MESSAGE_OFFSET - 1]);
+
+    let result = mollusk.process_instruction(&ix, &[]);
+    assert!(
+        result.program_result.is_err(),
+        "expected failure on short instruction data, got: {:?}",
         result.program_result
     );
 }

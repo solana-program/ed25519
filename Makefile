@@ -1,7 +1,6 @@
 RUST_TOOLCHAIN_NIGHTLY = nightly-2026-01-22
 SOLANA_CLI_VERSION = v3.1.10
 SBF_ARCH = v2
-PROGRAM_SO = solana_ed25519_program.so
 
 nightly = +${RUST_TOOLCHAIN_NIGHTLY}
 
@@ -47,8 +46,6 @@ build-sbf-%:
 	cargo build-sbf --arch $(SBF_ARCH) --manifest-path $(call make-path,$*)/Cargo.toml -- --locked $(ARGS)
 
 test-%:
-	@test -f target/deploy/$(PROGRAM_SO) || \
-		(echo "SBF artifact not found: run make build-sbf-$* first" >&2; exit 1)
 	SBF_OUT_DIR=$(PWD)/target/deploy cargo test \
 		--locked \
 		--manifest-path $(call make-path,$*)/Cargo.toml \

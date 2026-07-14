@@ -7,8 +7,8 @@ on:
     branches: [main]
 
 env:
-  SBPF_PROGRAM_PACKAGES: "['program']"
-  RUST_PACKAGES: "['program']"
+  SBPF_PROGRAM_PACKAGES: "['program', 'ed25519-verify']"
+  RUST_PACKAGES: "['program', 'ed25519-verify']"
 
 jobs:
   set_env:
@@ -41,3 +41,4 @@ jobs:
       rustfmt-toolchain: ${{ needs.set_env.outputs.RUST_TOOLCHAIN_NIGHTLY }}
       clippy-toolchain: ${{ needs.set_env.outputs.RUST_TOOLCHAIN_NIGHTLY }}
       solana-cli-version: ${{ needs.set_env.outputs.SOLANA_CLI_VERSION }}
+      generate-clients: false
