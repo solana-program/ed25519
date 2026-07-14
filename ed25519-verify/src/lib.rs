@@ -6,16 +6,21 @@
 //! `solana-ed25519-program`. Programs can also depend on it directly to verify
 //! Ed25519 signatures without invoking the standalone verifier program.
 //!
-//! The verifier performs ZIP-215 verification with canonical `S`.
+//! By default the verifier performs ZIP-215 verification with canonical `S`.
+//! The variant can be selected via [`VerificationCriteria`] and
+//! [`Ed25519Verifier::with_criteria`].
 
 #[cfg(feature = "instruction")]
 extern crate alloc;
 
+mod config;
+mod field;
 #[cfg(feature = "instruction")]
 pub mod program;
 mod scalar;
 mod verifier;
 
+pub use config::{VerificationCriteria, VerificationVariant};
 #[cfg(feature = "instruction")]
 pub use program::ed25519_verify_instruction;
 pub use verifier::Ed25519Verifier;

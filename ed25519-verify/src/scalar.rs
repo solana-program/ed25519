@@ -64,7 +64,7 @@ fn sub_assign(left: &mut [u8; 32], right: &[u8; 32]) {
     }
 }
 
-fn cmp_le(left: &[u8; 32], right: &[u8; 32]) -> core::cmp::Ordering {
+pub(crate) fn cmp_le(left: &[u8; 32], right: &[u8; 32]) -> core::cmp::Ordering {
     for (left_byte, right_byte) in left.iter().zip(right).rev() {
         match left_byte.cmp(right_byte) {
             core::cmp::Ordering::Equal => {}

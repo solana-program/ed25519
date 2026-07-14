@@ -3,7 +3,8 @@ use {
     mollusk_svm::Mollusk,
     solana_account::Account,
     solana_ed25519_verify::{
-        ed25519_verify_instruction, PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE,
+        ed25519_verify_instruction, VerificationVariant, PUBKEY_SERIALIZED_SIZE,
+        SIGNATURE_SERIALIZED_SIZE,
     },
     solana_instruction::{AccountMeta, Instruction},
     solana_program_runtime::{
@@ -20,8 +21,8 @@ use {
 
 const PROGRAM_SO_STEM: &str = "solana_ed25519_program";
 const SINGLE_MESSAGE: &[u8] = b"deterministic ed25519 verify benchmark";
-const PUBLIC_KEY_OFFSET: usize = 0;
-const MESSAGE_OFFSET: usize = PUBKEY_SERIALIZED_SIZE + SIGNATURE_SERIALIZED_SIZE;
+const PUBLIC_KEY_OFFSET: usize = 1;
+const MESSAGE_OFFSET: usize = 1 + PUBKEY_SERIALIZED_SIZE + SIGNATURE_SERIALIZED_SIZE;
 
 const EDWARDS_IDENTITY_COMPRESSED: [u8; PUBKEY_SERIALIZED_SIZE] = [
     0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -151,20 +152,29 @@ fn instruction(program_id: Pubkey, data: Vec<u8>) -> Instruction {
 }
 
 fn signed_instruction(program_id: Pubkey, message: &[u8]) -> Instruction {
+    signed_instruction_with_variant(program_id, VerificationVariant::Zip215, message)
+}
+
+fn signed_instruction_with_variant(
+    program_id: Pubkey,
+    variant: VerificationVariant,
+    message: &[u8],
+) -> Instruction {
     let signing_key = SigningKey::from_bytes(&[7; 32]);
     let signature = signing_key.sign(message).to_bytes();
     let public_key = signing_key.verifying_key().to_bytes();
 
-    ed25519_verify_instruction(&program_id, &public_key, &signature, message)
+    ed25519_verify_instruction(&program_id, variant, &public_key, &signature, message)
 }
 
 fn instruction_with_signature(
     program_id: Pubkey,
+    variant: VerificationVariant,
     message: &[u8],
     signature: &[u8; SIGNATURE_SERIALIZED_SIZE],
     public_key: &[u8; PUBKEY_SERIALIZED_SIZE],
 ) -> Instruction {
-    ed25519_verify_instruction(&program_id, public_key, signature, message)
+    ed25519_verify_instruction(&program_id, variant, public_key, signature, message)
 }
 
 #[test]
@@ -197,6 +207,7 @@ fn accepts_zip215_small_order_public_key_vector_on_sbf() {
     signature[..EDWARDS_IDENTITY_COMPRESSED.len()].copy_from_slice(&EDWARDS_IDENTITY_COMPRESSED);
     let ix = instruction_with_signature(
         program_id,
+        VerificationVariant::Zip215,
         message,
         &signature,
         &SMALL_ORDER_PUBLIC_KEY_COMPRESSED,
@@ -206,6 +217,67 @@ fn accepts_zip215_small_order_public_key_vector_on_sbf() {
     assert!(
         result.program_result.is_ok(),
         "verify failed: {:?}",
+        result.program_result
+    );
+}
+
+#[test]
+fn dalek_verify_strict_variant_rejects_small_order_public_key_on_sbf() {
+    let Some((mollusk, program_id)) = make_mollusk() else {
+        return;
+    };
+    // The ZIP-215 small-order public-key vector: accepted by the default preset
+    // (asserted above), but rejected by the dalek verify_strict preset.
+    let message = b"zip215 low-order public key vector";
+    let mut signature = [0; SIGNATURE_SERIALIZED_SIZE];
+    signature[..EDWARDS_IDENTITY_COMPRESSED.len()].copy_from_slice(&EDWARDS_IDENTITY_COMPRESSED);
+    let ix = instruction_with_signature(
+        program_id,
+        VerificationVariant::DalekVerifyStrict,
+        message,
+        &signature,
+        &SMALL_ORDER_PUBLIC_KEY_COMPRESSED,
+    );
+    let result = mollusk.process_instruction(&ix, &[]);
+
+    assert!(
+        result.program_result.is_err(),
+        "expected verify_strict to reject the small-order key, got: {:?}",
+        result.program_result
+    );
+}
+
+#[test]
+fn dalek_verify_strict_variant_accepts_valid_signature_on_sbf() {
+    let Some((mollusk, program_id)) = make_mollusk() else {
+        return;
+    };
+    let ix = signed_instruction_with_variant(
+        program_id,
+        VerificationVariant::DalekVerifyStrict,
+        SINGLE_MESSAGE,
+    );
+    let result = mollusk.process_instruction(&ix, &[]);
+
+    assert!(
+        result.program_result.is_ok(),
+        "verify_strict failed on a valid signature: {:?}",
+        result.program_result
+    );
+}
+
+#[test]
+fn rejects_unknown_variant_on_sbf() {
+    let Some((mollusk, program_id)) = make_mollusk() else {
+        return;
+    };
+    let mut ix = signed_instruction(program_id, SINGLE_MESSAGE);
+    ix.data[0] = 0xff; // unrecognized variant selector
+
+    let result = mollusk.process_instruction(&ix, &[]);
+    assert!(
+        result.program_result.is_err(),
+        "expected failure on unknown variant byte, got: {:?}",
         result.program_result
     );
 }
