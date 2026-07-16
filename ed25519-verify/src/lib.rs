@@ -14,7 +14,6 @@
 extern crate alloc;
 
 mod config;
-mod field;
 #[cfg(feature = "instruction")]
 pub mod program;
 mod scalar;

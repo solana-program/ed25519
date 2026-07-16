@@ -1,7 +1,5 @@
 use {
-    crate::{
-        field, scalar, VerificationCriteria, PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE,
-    },
+    crate::{scalar, VerificationCriteria, PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE},
     solana_curve25519::{
         edwards::{
             multiply_edwards, multiscalar_multiply_edwards, subtract_edwards, PodEdwardsPoint,
@@ -78,10 +76,10 @@ impl Ed25519Verifier {
         if self.criteria.require_canonical_s && !scalar::is_canonical_scalar(s_bytes) {
             return Err(ProgramError::InvalidArgument);
         }
-        if self.criteria.require_canonical_a && !field::is_canonical_point_encoding(public_key) {
+        if self.criteria.require_canonical_a && !scalar::is_canonical_point_encoding(public_key) {
             return Err(ProgramError::InvalidArgument);
         }
-        if self.criteria.require_canonical_r && !field::is_canonical_point_encoding(r_bytes) {
+        if self.criteria.require_canonical_r && !scalar::is_canonical_point_encoding(r_bytes) {
             return Err(ProgramError::InvalidArgument);
         }
 
