@@ -8,12 +8,14 @@
 //!
 //! [`VerificationCriteria`] exposes those divergences as independent knobs so a
 //! caller can select the exact variant they need. Two named presets ship today —
-//! [`zip215`] (this crate's historical default) and [`dalek_verify_strict`] — and
-//! the knobs are designed so that other well-known profiles (e.g. libsodium,
-//! RFC 8032 / FIPS 186-5) can be added as presets in follow-ups without changing
-//! the verifier.
+//! [`zip215`] (the [ZIP-215] criteria specified by [SIMD-0376]) and
+//! [`dalek_verify_strict`] — and the knobs are designed so that other well-known
+//! profiles (e.g. libsodium, RFC 8032 / FIPS 186-5) can be added as presets in
+//! follow-ups without changing the verifier.
 //!
 //! [blog]: https://hdevalence.ca/blog/2020-10-04-its-25519am/
+//! [ZIP-215]: https://zips.z.cash/zip-0215
+//! [SIMD-0376]: https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0376-verify-strict.md
 //! [`zip215`]: VerificationCriteria::zip215
 //! [`dalek_verify_strict`]: VerificationCriteria::dalek_verify_strict
 
@@ -57,7 +59,7 @@ pub struct VerificationCriteria {
 }
 
 impl VerificationCriteria {
-    /// [ZIP-215] verification: the historical default of this crate.
+    /// [ZIP-215] verification, as specified for Solana by [SIMD-0376].
     ///
     /// Cofactored equation with a canonical `S` requirement; non-canonical point
     /// encodings and small-order points are accepted (cofactor multiplication
@@ -66,6 +68,7 @@ impl VerificationCriteria {
     /// dalek accepts is accepted here.
     ///
     /// [ZIP-215]: https://zips.z.cash/zip-0215
+    /// [SIMD-0376]: https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0376-verify-strict.md
     pub const fn zip215() -> Self {
         Self {
             cofactored: true,
