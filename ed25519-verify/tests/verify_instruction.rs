@@ -1,8 +1,8 @@
 use {
     ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey},
     solana_ed25519_verify::{
-        ed25519_verify_instruction, Ed25519Verifier, VerificationCriteria, VerificationVariant,
-        PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE,
+        ed25519_verify_instruction, Ed25519Verifier, VerificationCriteria, PUBKEY_SERIALIZED_SIZE,
+        SIGNATURE_SERIALIZED_SIZE,
     },
     solana_program_error::ProgramError,
     solana_pubkey::Pubkey,
@@ -58,24 +58,14 @@ fn constructs_program_instruction_with_direct_layout() {
     let message = b"hello ed25519";
     let (signature, public_key) = signed_payload(message);
 
-    let instruction = ed25519_verify_instruction(
-        &program_id,
-        VerificationVariant::DalekVerifyStrict,
-        &public_key,
-        &signature,
-        message,
-    );
+    let instruction = ed25519_verify_instruction(&program_id, &public_key, &signature, message);
 
-    const PUBKEY_START: usize = 1;
+    const PUBKEY_START: usize = 0;
     const SIGNATURE_START: usize = PUBKEY_START + PUBKEY_SERIALIZED_SIZE;
     const MESSAGE_START: usize = SIGNATURE_START + SIGNATURE_SERIALIZED_SIZE;
 
     assert_eq!(instruction.program_id, program_id);
     assert!(instruction.accounts.is_empty());
-    assert_eq!(
-        instruction.data[0],
-        VerificationVariant::DalekVerifyStrict.to_byte()
-    );
     assert_eq!(
         &instruction.data[PUBKEY_START..SIGNATURE_START],
         &public_key
@@ -85,28 +75,6 @@ fn constructs_program_instruction_with_direct_layout() {
         &signature
     );
     assert_eq!(&instruction.data[MESSAGE_START..], message);
-}
-
-#[test]
-fn verification_variant_byte_round_trips() {
-    for variant in [
-        VerificationVariant::Zip215,
-        VerificationVariant::DalekVerifyStrict,
-    ] {
-        assert_eq!(
-            VerificationVariant::from_byte(variant.to_byte()),
-            Some(variant)
-        );
-        assert_eq!(
-            variant.criteria(),
-            match variant {
-                VerificationVariant::Zip215 => VerificationCriteria::zip215(),
-                VerificationVariant::DalekVerifyStrict =>
-                    VerificationCriteria::dalek_verify_strict(),
-            }
-        );
-    }
-    assert_eq!(VerificationVariant::from_byte(2), None);
 }
 
 #[test]

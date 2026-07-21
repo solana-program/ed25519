@@ -1,9 +1,7 @@
 use {
     crate::{scalar, VerificationCriteria, PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE},
     solana_curve25519::{
-        edwards::{
-            multiply_edwards, multiscalar_multiply_edwards, subtract_edwards, PodEdwardsPoint,
-        },
+        edwards::{add_edwards, multiscalar_multiply_edwards, subtract_edwards, PodEdwardsPoint},
         scalar::PodScalar,
     },
     solana_program_error::ProgramError,
@@ -20,10 +18,6 @@ pub(crate) const EDWARDS_IDENTITY_COMPRESSED_BYTES: [u8; PUBKEY_SERIALIZED_SIZE]
 ];
 const EDWARDS_IDENTITY_COMPRESSED: PodEdwardsPoint =
     PodEdwardsPoint(EDWARDS_IDENTITY_COMPRESSED_BYTES);
-const EIGHT_SCALAR: PodScalar = PodScalar([
-    0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-]);
 
 /// Stateless, zero-allocation Ed25519 verifier.
 ///
@@ -86,10 +80,10 @@ impl Ed25519Verifier {
         let r_point = PodEdwardsPoint(*r_bytes);
         let public_key_point = PodEdwardsPoint(*public_key);
 
-        if self.criteria.reject_small_order_a && is_small_order(&public_key_point) {
+        if self.criteria.reject_small_order_a && is_small_order(&public_key_point)? {
             return Err(ProgramError::InvalidArgument);
         }
-        if self.criteria.reject_small_order_r && is_small_order(&r_point) {
+        if self.criteria.reject_small_order_r && is_small_order(&r_point)? {
             return Err(ProgramError::InvalidArgument);
         }
 
@@ -103,7 +97,7 @@ impl Ed25519Verifier {
         let difference = subtract_edwards(&lhs, &r_point).ok_or(ProgramError::InvalidArgument)?;
 
         let residue = if self.criteria.cofactored {
-            multiply_edwards(&EIGHT_SCALAR, &difference).ok_or(ProgramError::InvalidArgument)?
+            multiply_by_8(&difference).ok_or(ProgramError::InvalidArgument)?
         } else {
             difference
         };
@@ -116,17 +110,28 @@ impl Ed25519Verifier {
     }
 }
 
-/// Returns `true` if `point` decompresses to a small-order (torsion) point.
+/// Returns `Ok(true)` if `point` decompresses to a small-order (torsion) point.
 ///
 /// A point has order dividing the cofactor 8 exactly when `[8]P` is the
 /// identity. This decompresses `point` (accepting non-canonical encodings, which
-/// reduce modulo `p`); an encoding that does not decompress is not treated as
-/// small order and is rejected later by the verification equation.
-fn is_small_order(point: &PodEdwardsPoint) -> bool {
-    matches!(
-        multiply_edwards(&EIGHT_SCALAR, point),
-        Some(product) if product == EDWARDS_IDENTITY_COMPRESSED
-    )
+/// reduce modulo `p`). An encoding that does not decompress returns
+/// `Err(InvalidArgument)` so the caller can reject it immediately, rather than
+/// treating it as non-small-order and paying for the subsequent verification
+/// syscalls only to fail there.
+fn is_small_order(point: &PodEdwardsPoint) -> Result<bool, ProgramError> {
+    let product = multiply_by_8(point).ok_or(ProgramError::InvalidArgument)?;
+    Ok(product == EDWARDS_IDENTITY_COMPRESSED)
+}
+
+/// Multiplies `point` by the cofactor 8 via three point doublings.
+///
+/// Cheaper than a scalar multiplication by 8: three `sol_curve_group_op`
+/// additions (473 CU each, 1,419 total) versus one multiplication (2,177 CU).
+/// Returns `None` if `point` is not a valid curve encoding.
+fn multiply_by_8(point: &PodEdwardsPoint) -> Option<PodEdwardsPoint> {
+    let double = add_edwards(point, point)?;
+    let quadruple = add_edwards(&double, &double)?;
+    add_edwards(&quadruple, &quadruple)
 }
 
 fn compute_challenge(signature_r: &[u8; 32], public_key: &[u8; 32], message: &[u8]) -> [u8; 32] {

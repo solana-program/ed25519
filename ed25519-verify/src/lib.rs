@@ -19,7 +19,7 @@ pub mod program;
 mod scalar;
 mod verifier;
 
-pub use config::{VerificationCriteria, VerificationVariant};
+pub use config::VerificationCriteria;
 #[cfg(feature = "instruction")]
 pub use program::ed25519_verify_instruction;
 pub use verifier::Ed25519Verifier;

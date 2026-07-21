@@ -22,7 +22,7 @@ succeeded.
 | Syscall | SDK wrapper |
 |---|---|
 | `sol_sha512` | `solana_sha512_hasher::hashv` |
-| `sol_curve_group_op` | `solana_curve25519::edwards::multiply_edwards` |
+| `sol_curve_group_op` | `solana_curve25519::edwards::{add_edwards, subtract_edwards}` |
 | `sol_curve_multiscalar_mul` | `solana_curve25519::edwards::multiscalar_multiply_edwards` |
 
 `sol_sha512` is not live on mainnet yet. The wrapper crate is published as
@@ -34,32 +34,26 @@ feature before SBF execution will work.
 The program verifies a single signature. Instruction data is:
 
 ```text
-[0]           verification variant selector (u8)
-[1 .. 33]     public key A (32 bytes)
-[33 .. 97]    signature R‖S (64 bytes)
-[97 ..]       message
+[0 .. 32]     public key A (32 bytes)
+[32 .. 96]    signature R‖S (64 bytes)
+[96 ..]       message
 ```
 
 The `ed25519_verify_instruction` helper in `solana-ed25519-verify` builds this
-layout. The variant byte selects which verification preset the program applies
-(see [Verification criteria](#verification-criteria-library)):
-
-```text
-0    ZIP-215 (default)
-1    ed25519-dalek verify_strict
-```
+layout.
 
 ### Constraints
 
-- **Verification variant.** Selected by byte `[0]`. Unrecognized selectors are
-  rejected with `InvalidInstructionData`. The default (`0`) is [ZIP-215]: the
+- **Verification criteria.** The program always applies [ZIP-215]: the
   cofactored equation `[8](S·B − H(R‖A‖M)·A) == [8]R` with canonical `S`.
-  Small-order and non-canonical points are accepted under ZIP-215 but rejected
-  under the `verify_strict` variant.
+  Small-order and non-canonical points are accepted. Programs needing a
+  different variant (e.g. `verify_strict`) should depend on the
+  `solana-ed25519-verify` library directly (see
+  [Verification criteria](#verification-criteria-library)).
 - **No accounts.** The program takes no account arguments and returns
   `InvalidArgument` if any are supplied.
-- **Minimum length.** Instruction data shorter than the 97-byte
-  `variant || A || R‖S` header is rejected with `InvalidInstructionData`.
+- **Minimum length.** Instruction data shorter than the 96-byte
+  `A || R‖S` header is rejected with `InvalidInstructionData`.
 
 [ZIP-215]: https://zips.z.cash/zip-0215
 
@@ -72,11 +66,11 @@ knobs via `VerificationCriteria`:
 
 | Knob | Effect when enabled | Extra syscalls |
 |---|---|---|
-| `cofactored` | Use `[8](S·B − H·A − R) == identity` instead of the cofactorless `S·B − H·A − R == identity` | +1 `sol_curve_group_op` |
+| `cofactored` | Use `[8](S·B − H·A − R) == identity` instead of the cofactorless `S·B − H·A − R == identity` | +3 `sol_curve_group_op` (multiply-by-8 as three doublings) |
 | `require_canonical_a` | Reject public keys whose `y`-coordinate is `≥ p` | none |
 | `require_canonical_r` | Reject signature `R` whose `y`-coordinate is `≥ p` | none |
-| `reject_small_order_a` | Reject small-order (torsion) public keys | +1 `sol_curve_group_op` |
-| `reject_small_order_r` | Reject small-order signature `R` values | +1 `sol_curve_group_op` |
+| `reject_small_order_a` | Reject small-order (torsion) public keys | +3 `sol_curve_group_op` |
+| `reject_small_order_r` | Reject small-order signature `R` values | +3 `sol_curve_group_op` |
 | `require_canonical_s` | Reject `S ≥ L` | none |
 
 ```rust
@@ -107,9 +101,9 @@ exactly (cross-checked in the test suite), including the detail that a
 non-canonically encoded public key `A` is *not* rejected. Further presets
 (libsodium, RFC 8032 / FIPS 186-5) can be added in follow-ups.
 
-The on-chain program exposes these two presets through the leading
-[variant selector byte](#instruction-format) of its instruction data, so callers
-can pick either without a separate program deployment.
+The on-chain program always applies the `zip215()` preset. A program needing a
+different variant should depend on this crate directly and build an
+`Ed25519Verifier` from the desired `VerificationCriteria`.
 
 [It's 255:19AM]: https://hdevalence.ca/blog/2020-10-04-its-25519am/
 
