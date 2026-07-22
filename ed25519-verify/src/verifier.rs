@@ -21,7 +21,7 @@ const EDWARDS_IDENTITY_COMPRESSED: PodEdwardsPoint =
 
 /// Stateless, zero-allocation Ed25519 verifier.
 ///
-/// The verification variant is selected by [`VerificationCriteria`]. A verifier
+/// The verification behavior is selected by [`VerificationCriteria`]. A verifier
 /// created with [`Ed25519Verifier::new`] uses the [`VerificationCriteria::zip215`]
 /// preset, matching this crate's historical behavior.
 #[derive(Debug, Clone, Copy, Default)]
@@ -96,13 +96,23 @@ impl Ed25519Verifier {
         .ok_or(ProgramError::InvalidArgument)?;
         let difference = subtract_edwards(&lhs, &r_point).ok_or(ProgramError::InvalidArgument)?;
 
-        let residue = if self.criteria.cofactored {
-            multiply_by_8(&difference).ok_or(ProgramError::InvalidArgument)?
-        } else {
-            difference
-        };
-
-        if residue != EDWARDS_IDENTITY_COMPRESSED {
+        // An exact-identity difference satisfies both the cofactorless and the
+        // cofactored equation, so accept it without the cofactor multiplication.
+        // This is the common case for honestly generated (prime-order) signatures,
+        // so it saves the `multiply_by_8` syscalls on the hot path.
+        if difference == EDWARDS_IDENTITY_COMPRESSED {
+            return Ok(());
+        }
+        // Cofactorless verification requires an exact identity, which is now ruled
+        // out. Cofactored verification additionally accepts a difference that
+        // clears to identity once multiplied by the cofactor 8 (the mixed-order
+        // points that ZIP-215 tolerates).
+        if !self.criteria.cofactored {
+            return Err(ProgramError::InvalidArgument);
+        }
+        if multiply_by_8(&difference).ok_or(ProgramError::InvalidArgument)?
+            != EDWARDS_IDENTITY_COMPRESSED
+        {
             return Err(ProgramError::InvalidArgument);
         }
 

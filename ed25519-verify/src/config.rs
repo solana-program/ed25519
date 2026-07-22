@@ -39,7 +39,8 @@ pub struct VerificationCriteria {
     ///
     /// When `false`, the cofactorless equation `S·B − H·A == R` is used, which
     /// rejects mixed-order points that the cofactored equation tolerates. The
-    /// cofactored form costs one extra `sol_curve_group_op` syscall.
+    /// cofactored form costs one extra multiplication by the cofactor 8, which
+    /// the verifier performs as three `sol_curve_group_op` additions.
     pub cofactored: bool,
     /// Reject public keys whose compressed `y`-coordinate is `>= p` (a
     /// non-canonical encoding of a reduced point).
@@ -48,11 +49,13 @@ pub struct VerificationCriteria {
     pub require_canonical_r: bool,
     /// Reject public keys that lie in the small-order (torsion) subgroup.
     ///
-    /// Costs one `sol_curve_group_op` syscall when enabled.
+    /// Costs a multiplication by the cofactor 8 (three `sol_curve_group_op`
+    /// additions) when enabled.
     pub reject_small_order_a: bool,
     /// Reject signature `R` values that lie in the small-order subgroup.
     ///
-    /// Costs one `sol_curve_group_op` syscall when enabled.
+    /// Costs a multiplication by the cofactor 8 (three `sol_curve_group_op`
+    /// additions) when enabled.
     pub reject_small_order_r: bool,
     /// Reject signatures whose scalar `S` is not in canonical `[0, L)` form.
     pub require_canonical_s: bool,
