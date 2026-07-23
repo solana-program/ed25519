@@ -158,15 +158,6 @@ fn signed_instruction(program_id: Pubkey, message: &[u8]) -> Instruction {
     ed25519_verify_instruction(&program_id, &public_key, &signature, message)
 }
 
-fn instruction_with_signature(
-    program_id: Pubkey,
-    message: &[u8],
-    signature: &[u8; SIGNATURE_SERIALIZED_SIZE],
-    public_key: &[u8; PUBKEY_SERIALIZED_SIZE],
-) -> Instruction {
-    ed25519_verify_instruction(&program_id, public_key, signature, message)
-}
-
 #[test]
 fn verifies_single_signature_on_sbf_and_reports_compute_units() {
     let Some((mollusk, program_id)) = make_mollusk() else {
@@ -195,11 +186,11 @@ fn accepts_zip215_small_order_public_key_vector_on_sbf() {
     let message = b"zip215 low-order public key vector";
     let mut signature = [0; SIGNATURE_SERIALIZED_SIZE];
     signature[..EDWARDS_IDENTITY_COMPRESSED.len()].copy_from_slice(&EDWARDS_IDENTITY_COMPRESSED);
-    let ix = instruction_with_signature(
-        program_id,
-        message,
-        &signature,
+    let ix = ed25519_verify_instruction(
+        &program_id,
         &SMALL_ORDER_PUBLIC_KEY_COMPRESSED,
+        &signature,
+        message,
     );
     let result = mollusk.process_instruction(&ix, &[]);
 

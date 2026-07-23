@@ -22,7 +22,7 @@ succeeded.
 | Syscall | SDK wrapper |
 |---|---|
 | `sol_sha512` | `solana_sha512_hasher::hashv` |
-| `sol_curve_group_op` | `solana_curve25519::edwards::multiply_edwards` |
+| `sol_curve_group_op` | `solana_curve25519::edwards::{add_edwards, subtract_edwards}` |
 | `sol_curve_multiscalar_mul` | `solana_curve25519::edwards::multiscalar_multiply_edwards` |
 
 `sol_sha512` is not live on mainnet yet. The wrapper crate is published as
@@ -31,44 +31,81 @@ feature before SBF execution will work.
 
 ## Instruction format
 
-```text
-[0]                   number of signatures (u8)
-[1]                   padding, ignored
-[2 .. 2 + 14*N]       N x Ed25519SignatureOffsets records (14 bytes each, LE)
-[2 + 14*N ..]         payload: public keys, signatures, messages (order flexible)
-```
-
-Each offset record matches `Ed25519SignatureOffsets` exposed by this crate:
+The program verifies a single signature. Instruction data is:
 
 ```text
-[0..2]    signature_offset
-[2..4]    signature_instruction_index
-[4..6]    public_key_offset
-[6..8]    public_key_instruction_index
-[8..10]   message_data_offset
-[10..12]  message_data_size
-[12..14]  message_instruction_index
+[0 .. 32]     public key A (32 bytes)
+[32 .. 96]    signature R‖S (64 bytes)
+[96 ..]       message
 ```
+
+The `ed25519_verify_instruction` helper in `solana-ed25519-verify` builds this
+layout.
 
 ### Constraints
 
-- **All instruction-index fields must be `u16::MAX`.** The native precompile
-  uses this sentinel for the current instruction. An SBF program receives only
-  its own instruction data; cross-instruction references require a future
-  runtime change.
-- **ZIP-215 verification.** The program uses the cofactored equation
-  `[8](S·B − H(R‖A‖M)·A) == [8]R` with canonical `S`, following
-  [ZIP-215](https://zips.z.cash/zip-0215). Small-order `R` and public-key
-  points are not explicitly rejected — the cofactor multiplication makes them
-  indistinguishable from the identity contribution and verification fails
-  naturally for any signature not crafted for them. This is backward compatible
-  with `ed25519_dalek::verify_strict`: every point accepted by dalek is also
-  accepted here (dalek rejects small-order points outright, so no valid dalek
-  signature is broken by the relaxed check).
-- **Zero-signature payloads** are accepted only when the buffer is exactly the
-  2-byte header.
+- **Verification criteria.** The program always applies [ZIP-215]: the
+  cofactored equation `[8](S·B − H(R‖A‖M)·A) == [8]R` with canonical `S`.
+  Small-order and non-canonical points are accepted. Programs needing a
+  different variant (e.g. `verify_strict`) should depend on the
+  `solana-ed25519-verify` library directly (see
+  [Verification criteria](#verification-criteria-library)).
 - **No accounts.** The program takes no account arguments and returns
   `InvalidArgument` if any are supplied.
+- **Minimum length.** Instruction data shorter than the 96-byte
+  `A || R‖S` header is rejected with `InvalidInstructionData`.
+
+[ZIP-215]: https://zips.z.cash/zip-0215
+
+## Verification criteria (library)
+
+Ed25519 "validity" is not one definition — implementations differ on cofactoring,
+non-canonical encodings, and small-order rejection (see Henry de Valence's
+[It's 255:19AM]). The `solana-ed25519-verify` crate exposes these as independent
+knobs via `VerificationCriteria`:
+
+| Knob | Effect when enabled | Extra syscalls |
+|---|---|---|
+| `cofactored` | Use `[8](S·B − H·A − R) == identity` instead of the cofactorless `S·B − H·A − R == identity` | +3 `sol_curve_group_op` (multiply-by-8 as three doublings) |
+| `require_canonical_a` | Reject public keys whose `y`-coordinate is `≥ p` | none |
+| `require_canonical_r` | Reject signature `R` whose `y`-coordinate is `≥ p` | none |
+| `reject_small_order_a` | Reject small-order (torsion) public keys | +3 `sol_curve_group_op` |
+| `reject_small_order_r` | Reject small-order signature `R` values | +3 `sol_curve_group_op` |
+| `require_canonical_s` | Reject `S ≥ L` | none |
+
+```rust
+use solana_ed25519_verify::{Ed25519Verifier, VerificationCriteria};
+
+// Default: the ZIP-215 preset (cofactored, canonical S required).
+let verifier = Ed25519Verifier::new();
+
+// `ed25519-dalek`'s verify_strict semantics.
+let strict = Ed25519Verifier::with_criteria(VerificationCriteria::dalek_verify_strict());
+
+// Or compose a variant by overriding individual knobs.
+let custom = Ed25519Verifier::with_criteria(VerificationCriteria {
+    reject_small_order_a: true,
+    ..VerificationCriteria::zip215()
+});
+```
+
+Named presets:
+
+| Preset | `cofactored` | `canonical_a` | `canonical_r` | `small_order_a` | `small_order_r` | `canonical_s` |
+|---|---|---|---|---|---|---|
+| `zip215()` (default) | ✓ | | | | | ✓ |
+| `dalek_verify_strict()` | | | ✓ | ✓ | ✓ | ✓ |
+
+`dalek_verify_strict()` matches `ed25519_dalek::VerifyingKey::verify_strict`
+exactly (cross-checked in the test suite), including the detail that a
+non-canonically encoded public key `A` is *not* rejected. Further presets
+(libsodium, RFC 8032 / FIPS 186-5) can be added in follow-ups.
+
+The on-chain program always applies the `zip215()` preset. A program needing a
+different variant should depend on this crate directly and build an
+`Ed25519Verifier` from the desired `VerificationCriteria`.
+
+[It's 255:19AM]: https://hdevalence.ca/blog/2020-10-04-its-25519am/
 
 ## Build and test
 

@@ -2,4 +2,7 @@
 use_builtin = true
 search_dirs = ["."]
 extra_dictionaries = ["spellcheck.dic"]
-
+# Treat the em dash (U+2014) as a token separator; cargo-spellcheck's default
+# split chars cover the other dash variants but not this one, so a space-padded
+# " — " would otherwise be spell-checked as the word "—".
+tokenization_splitchars = "\",';:.!?#(){}[]|/_-‒–⁃⁻₋−⸺⸻\n…—"

@@ -1,0 +1,111 @@
+//! Configurable Ed25519 verification criteria.
+//!
+//! Ed25519 "signature validity" is not a single definition: implementations
+//! differ on cofactored vs. cofactorless verification, whether non-canonical
+//! point encodings are accepted, and whether small-order points are rejected.
+//! These divergences are catalogued in Henry de Valence's
+//! ["It's 255:19AM. Do you know what your validation criteria are?"][blog].
+//!
+//! [`VerificationCriteria`] exposes those divergences as independent knobs so a
+//! caller can select the exact variant they need. Two named presets ship today —
+//! [`zip215`] (the [ZIP-215] criteria specified by [SIMD-0376]) and
+//! [`dalek_verify_strict`] — and the knobs are designed so that other well-known
+//! profiles (e.g. libsodium, RFC 8032 / FIPS 186-5) can be added as presets in
+//! follow-ups without changing the verifier.
+//!
+//! [blog]: https://hdevalence.ca/blog/2020-10-04-its-25519am/
+//! [ZIP-215]: https://zips.z.cash/zip-0215
+//! [SIMD-0376]: https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0376-verify-strict.md
+//! [`zip215`]: VerificationCriteria::zip215
+//! [`dalek_verify_strict`]: VerificationCriteria::dalek_verify_strict
+
+/// Independent Ed25519 validation knobs.
+///
+/// Each field toggles one decision point from the "255:19AM" taxonomy. Fields
+/// are public so callers can compose arbitrary combinations, typically by
+/// starting from a preset and overriding a single knob:
+///
+/// ```
+/// use solana_ed25519_verify::VerificationCriteria;
+///
+/// let strict_s = VerificationCriteria {
+///     reject_small_order_a: true,
+///     ..VerificationCriteria::zip215()
+/// };
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VerificationCriteria {
+    /// Use the cofactored verification equation `[8](S·B − H·A) == [8]R`.
+    ///
+    /// When `false`, the cofactorless equation `S·B − H·A == R` is used, which
+    /// rejects mixed-order points that the cofactored equation tolerates. The
+    /// cofactored form costs one extra multiplication by the cofactor 8, which
+    /// the verifier performs as three `sol_curve_group_op` additions.
+    pub cofactored: bool,
+    /// Reject public keys whose compressed `y`-coordinate is `>= p` (a
+    /// non-canonical encoding of a reduced point).
+    pub require_canonical_a: bool,
+    /// Reject signature `R` values whose compressed `y`-coordinate is `>= p`.
+    pub require_canonical_r: bool,
+    /// Reject public keys that lie in the small-order (torsion) subgroup.
+    ///
+    /// Costs a multiplication by the cofactor 8 (three `sol_curve_group_op`
+    /// additions) when enabled.
+    pub reject_small_order_a: bool,
+    /// Reject signature `R` values that lie in the small-order subgroup.
+    ///
+    /// Costs a multiplication by the cofactor 8 (three `sol_curve_group_op`
+    /// additions) when enabled.
+    pub reject_small_order_r: bool,
+    /// Reject signatures whose scalar `S` is not in canonical `[0, L)` form.
+    pub require_canonical_s: bool,
+}
+
+impl VerificationCriteria {
+    /// [ZIP-215] verification, as specified for Solana by [SIMD-0376].
+    ///
+    /// Cofactored equation with a canonical `S` requirement; non-canonical point
+    /// encodings and small-order points are accepted (cofactor multiplication
+    /// makes them indistinguishable from the identity contribution). This is
+    /// backward compatible with `ed25519_dalek::verify_strict`: every signature
+    /// dalek accepts is accepted here.
+    ///
+    /// [ZIP-215]: https://zips.z.cash/zip-0215
+    /// [SIMD-0376]: https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0376-verify-strict.md
+    pub const fn zip215() -> Self {
+        Self {
+            cofactored: true,
+            require_canonical_a: false,
+            require_canonical_r: false,
+            reject_small_order_a: false,
+            reject_small_order_r: false,
+            require_canonical_s: true,
+        }
+    }
+
+    /// The criteria enforced by `ed25519_dalek::VerifyingKey::verify_strict`.
+    ///
+    /// Cofactorless verification with canonical `S`, canonical `R`, and
+    /// small-order rejection for both `A` and `R`. Mirrors ed25519-dalek 2.x
+    /// exactly, including the detail that a non-canonically encoded public key
+    /// `A` is *not* rejected — dalek's `VerifyingKey::from_bytes` decompresses
+    /// `A` (reducing `y` modulo `p`) without a canonicity check, and
+    /// `verify_strict` only re-encodes and compares `R`. Every signature this
+    /// preset accepts is accepted by dalek's `verify_strict`, and vice versa.
+    pub const fn dalek_verify_strict() -> Self {
+        Self {
+            cofactored: false,
+            require_canonical_a: false,
+            require_canonical_r: true,
+            reject_small_order_a: true,
+            reject_small_order_r: true,
+            require_canonical_s: true,
+        }
+    }
+}
+
+impl Default for VerificationCriteria {
+    fn default() -> Self {
+        Self::zip215()
+    }
+}

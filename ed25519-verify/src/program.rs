@@ -8,6 +8,11 @@ use {
 };
 
 /// Constructs an on-chain instruction to invoke `solana-ed25519-program`.
+///
+/// The instruction data is `public_key || signature || message`. The program
+/// verifies the signature under the [ZIP-215] criteria.
+///
+/// [ZIP-215]: crate::VerificationCriteria::zip215
 pub fn ed25519_verify_instruction(
     program_id: &Pubkey,
     public_key: &[u8; PUBKEY_SERIALIZED_SIZE],
