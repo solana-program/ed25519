@@ -103,9 +103,3 @@ impl VerificationCriteria {
         }
     }
 }
-
-impl Default for VerificationCriteria {
-    fn default() -> Self {
-        Self::zip215()
-    }
-}

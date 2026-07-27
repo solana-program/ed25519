@@ -214,10 +214,6 @@ fn new_uses_zip215_criteria() {
         Ed25519Verifier::new().criteria(),
         VerificationCriteria::zip215()
     );
-    assert_eq!(
-        VerificationCriteria::default(),
-        VerificationCriteria::zip215()
-    );
 }
 
 #[test]
