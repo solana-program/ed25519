@@ -1,4 +1,4 @@
-33
+34
 19AM
 CPI
 Cofactorless
@@ -16,9 +16,10 @@ cofactor
 cofactored
 cofactorless
 cryptographic
-dalek/P
+dalek/M
 de
 deserializes
+doublings
 ed25519
 encodings
 entrypoint

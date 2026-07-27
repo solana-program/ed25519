@@ -15,13 +15,13 @@ extern crate alloc;
 
 mod config;
 #[cfg(feature = "instruction")]
-pub mod program;
+pub mod instruction;
 mod scalar;
 mod verifier;
 
 pub use config::VerificationCriteria;
 #[cfg(feature = "instruction")]
-pub use program::ed25519_verify_instruction;
+pub use instruction::verify;
 pub use verifier::Ed25519Verifier;
 
 pub const PUBKEY_SERIALIZED_SIZE: usize = 32;

@@ -24,9 +24,15 @@ const EDWARDS_IDENTITY_COMPRESSED: PodEdwardsPoint =
 /// The verification behavior is selected by [`VerificationCriteria`]. A verifier
 /// created with [`Ed25519Verifier::new`] uses the [`VerificationCriteria::zip215`]
 /// preset, matching this crate's historical behavior.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct Ed25519Verifier {
     criteria: VerificationCriteria,
+}
+
+impl Default for Ed25519Verifier {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Ed25519Verifier {

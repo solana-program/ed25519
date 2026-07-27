@@ -2,9 +2,6 @@
 
 //! Pinocchio SBF wrapper for [`solana_ed25519_verify`].
 
-#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
-extern crate std;
-
 use {
     pinocchio::{
         entrypoint::InstructionContext, error::ProgramError, lazy_program_entrypoint, ProgramResult,
@@ -44,12 +41,14 @@ pub fn process_instruction(context: InstructionContext) -> ProgramResult {
         return Err(ProgramError::InvalidInstructionData);
     }
 
+    // Both ranges are fixed-size and in bounds after the length check above,
+    // so the conversions to fixed-size arrays cannot fail.
     let public_key = instruction_data[PUBKEY_OFFSET..SIGNATURE_OFFSET]
         .try_into()
-        .map_err(|_| ProgramError::InvalidInstructionData)?;
+        .unwrap();
     let signature = instruction_data[SIGNATURE_OFFSET..MESSAGE_OFFSET]
         .try_into()
-        .map_err(|_| ProgramError::InvalidInstructionData)?;
+        .unwrap();
     let message = &instruction_data[MESSAGE_OFFSET..];
 
     Ed25519Verifier::new().verify_signature(signature, public_key, message)

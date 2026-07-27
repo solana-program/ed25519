@@ -2,9 +2,7 @@ use {
     ed25519_dalek::{Signer, SigningKey},
     mollusk_svm::Mollusk,
     solana_account::Account,
-    solana_ed25519_verify::{
-        ed25519_verify_instruction, PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE,
-    },
+    solana_ed25519_verify::{verify, PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE},
     solana_instruction::{AccountMeta, Instruction},
     solana_program_runtime::{
         invoke_context::InvokeContext,
@@ -155,7 +153,7 @@ fn signed_instruction(program_id: Pubkey, message: &[u8]) -> Instruction {
     let signature = signing_key.sign(message).to_bytes();
     let public_key = signing_key.verifying_key().to_bytes();
 
-    ed25519_verify_instruction(&program_id, &public_key, &signature, message)
+    verify(&program_id, &public_key, &signature, message)
 }
 
 #[test]
@@ -186,7 +184,7 @@ fn accepts_zip215_small_order_public_key_vector_on_sbf() {
     let message = b"zip215 low-order public key vector";
     let mut signature = [0; SIGNATURE_SERIALIZED_SIZE];
     signature[..EDWARDS_IDENTITY_COMPRESSED.len()].copy_from_slice(&EDWARDS_IDENTITY_COMPRESSED);
-    let ix = ed25519_verify_instruction(
+    let ix = verify(
         &program_id,
         &SMALL_ORDER_PUBLIC_KEY_COMPRESSED,
         &signature,

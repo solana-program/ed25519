@@ -39,8 +39,7 @@ The program verifies a single signature. Instruction data is:
 [96 ..]       message
 ```
 
-The `ed25519_verify_instruction` helper in `solana-ed25519-verify` builds this
-layout.
+The `verify` helper in `solana-ed25519-verify` builds this layout.
 
 ### Constraints
 
