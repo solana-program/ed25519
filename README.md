@@ -39,7 +39,15 @@ The program verifies a single signature. Instruction data is:
 [96 ..]       message
 ```
 
-The `verify` helper in `solana-ed25519-verify` builds this layout.
+The `verify` helper in `solana-ed25519-verify` builds this layout. The crate
+also declares the program's canonical on-chain address via `declare_id!`,
+exposed as `ID` and `id()`:
+
+```rust
+use solana_ed25519_verify::{verify, ID};
+
+let instruction = verify(&ID, &public_key, &signature, message);
+```
 
 ### Constraints
 
@@ -53,6 +61,13 @@ The `verify` helper in `solana-ed25519-verify` builds this layout.
   `InvalidArgument` if any are supplied.
 - **Minimum length.** Instruction data shorter than the 96-byte
   `A || R‖S` header is rejected with `InvalidInstructionData`.
+- **Error surface.** Every signature-verification failure — malformed
+  encoding, a small-order or non-canonical rejection, or a signature that
+  simply doesn't verify — surfaces uniformly as `InvalidInstructionData`,
+  regardless of the underlying cause. Callers needing to distinguish failure
+  reasons should depend on `solana-ed25519-verify` directly and inspect the
+  [`Ed25519VerifyError`](#error-handling-library) returned by
+  `Ed25519Verifier::verify_signature`.
 
 [ZIP-215]: https://zips.z.cash/zip-0215
 
@@ -90,6 +105,9 @@ let custom = Ed25519Verifier::with_criteria(VerificationCriteria {
     reject_small_order_a: true,
     ..VerificationCriteria::zip215()
 });
+
+// See "Error handling" below for the possible failure reasons.
+verifier.verify_signature(&signature, &public_key, message)?;
 ```
 
 Named presets:
@@ -110,6 +128,49 @@ different variant should depend on this crate directly and build an
 
 [It's 255:19AM]: https://hdevalence.ca/blog/2020-10-04-its-25519am/
 
+## Error handling (library)
+
+`Ed25519Verifier::verify_signature` returns `Result<(), Ed25519VerifyError>`.
+The library crate has no dependency on `solana-program-error` or any other
+Solana-runtime error type — `Ed25519VerifyError` is a plain, dependency-free
+enum, so consumers outside a Solana program aren't forced into a
+Solana-specific type.
+
+| Variant                 | Meaning                                                                |
+| ----------------------- | ---------------------------------------------------------------------- |
+| `NonCanonicalPublicKey` | `A`'s `y`-coordinate is `≥ p` (`require_canonical_a` only)             |
+| `NonCanonicalR`         | `R`'s `y`-coordinate is `≥ p` (`require_canonical_r` only)             |
+| `SmallOrderPublicKey`   | `A` is a small-order (torsion) point (`reject_small_order_a` only)     |
+| `SmallOrderR`           | `R` is a small-order (torsion) point (`reject_small_order_r` only)     |
+| `InvalidEncoding`       | `A` doesn't decode to a valid point, or `S` is non-canonical (`S ≥ L`) |
+| `SignatureMismatch`     | Every input decoded successfully, but the equation doesn't hold        |
+
+`InvalidEncoding` intentionally does not distinguish a malformed public key
+from a non-canonical `S` scalar: the curve syscall that consumes both reports
+only overall success or failure, with no further detail attached.
+
+The on-chain program collapses all of these to
+`ProgramError::InvalidInstructionData` — see [Constraints](#constraints).
+
+## Cargo features
+
+`solana-ed25519-verify` has two independent features, both enabled by default:
+
+| Feature       | Unlocks                                                         | Pulls in                                    |
+| ------------- | --------------------------------------------------------------- | ------------------------------------------- |
+| `verify`      | `Ed25519Verifier`, `VerificationCriteria`, `Ed25519VerifyError` | `solana-curve25519`, `solana-sha512-hasher` |
+| `instruction` | `verify()`, `id()`, `ID` (the client-side instruction builder)  | `solana-instruction`, `solana-address`      |
+
+A pure client that only needs to construct instructions for CPI or a
+transaction — and never verifies a signature itself — can depend on
+`instruction` alone, without pulling in the curve/hash syscall wrappers:
+
+```toml
+solana-ed25519-verify = { version = "0.1.0", default-features = false, features = [
+    "instruction",
+] }
+```
+
 ## Build and test
 
 Stable Rust `1.93.1` is pinned in `rust-toolchain.toml`. Some make targets
@@ -124,6 +185,10 @@ cargo build-sbf --arch v2 --manifest-path program/Cargo.toml
 
 # SBF build via Makefile
 make build-sbf-program
+
+# Confirm the pure-client configuration compiles without the curve/hash
+# syscall wrappers
+cargo check --manifest-path ed25519-verify/Cargo.toml --no-default-features --features instruction
 
 # Host unit tests, then SBF integration tests via Mollusk
 make test-program

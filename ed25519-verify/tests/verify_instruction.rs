@@ -1,11 +1,10 @@
 use {
     ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey},
+    solana_address::Address,
     solana_ed25519_verify::{
-        verify, Ed25519Verifier, VerificationCriteria, PUBKEY_SERIALIZED_SIZE,
-        SIGNATURE_SERIALIZED_SIZE,
+        constants::{PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE},
+        verify, Ed25519Verifier, Ed25519VerifyError, VerificationCriteria,
     },
-    solana_program_error::ProgramError,
-    solana_pubkey::Pubkey,
 };
 
 const EDWARDS_IDENTITY_COMPRESSED: [u8; PUBKEY_SERIALIZED_SIZE] = [
@@ -40,7 +39,7 @@ fn verify_signature(
     signature: &[u8; SIGNATURE_SERIALIZED_SIZE],
     public_key: &[u8; PUBKEY_SERIALIZED_SIZE],
     message: &[u8],
-) -> Result<(), ProgramError> {
+) -> Result<(), Ed25519VerifyError> {
     Ed25519Verifier::new().verify_signature(signature, public_key, message)
 }
 
@@ -54,7 +53,7 @@ fn verifies_matching_signature() {
 
 #[test]
 fn constructs_program_instruction_with_direct_layout() {
-    let program_id = Pubkey::new_unique();
+    let program_id = Address::new_unique();
     let message = b"hello ed25519";
     let (signature, public_key) = signed_payload(message);
 
@@ -102,7 +101,7 @@ fn rejects_wrong_public_key() {
 
     assert_eq!(
         verify_signature(&signature, &public_key, message),
-        Err(ProgramError::InvalidArgument)
+        Err(Ed25519VerifyError::SignatureMismatch)
     );
 }
 
@@ -114,7 +113,7 @@ fn rejects_corrupted_signature() {
 
     assert_eq!(
         verify_signature(&signature, &public_key, message),
-        Err(ProgramError::InvalidArgument)
+        Err(Ed25519VerifyError::SignatureMismatch)
     );
 }
 
@@ -125,7 +124,7 @@ fn rejects_tampered_message() {
 
     assert_eq!(
         verify_signature(&signature, &public_key, b"hello ed25518"),
-        Err(ProgramError::InvalidArgument)
+        Err(Ed25519VerifyError::SignatureMismatch)
     );
 }
 
@@ -141,7 +140,7 @@ fn rejects_non_canonical_s_scalar() {
 
     assert_eq!(
         verify_signature(&signature, &public_key, message),
-        Err(ProgramError::InvalidArgument)
+        Err(Ed25519VerifyError::InvalidEncoding)
     );
 }
 
@@ -157,7 +156,7 @@ fn rejects_low_order_r() {
 
     assert_eq!(
         verify_signature(&signature, &public_key, message),
-        Err(ProgramError::InvalidArgument)
+        Err(Ed25519VerifyError::SignatureMismatch)
     );
 }
 
@@ -168,7 +167,7 @@ fn rejects_low_order_public_key() {
 
     assert_eq!(
         verify_signature(&signature, &SMALL_ORDER_PUBLIC_KEY_COMPRESSED, message),
-        Err(ProgramError::InvalidArgument)
+        Err(Ed25519VerifyError::SignatureMismatch)
     );
 }
 
@@ -179,7 +178,7 @@ fn rejects_invalid_public_key() {
 
     assert_eq!(
         verify_signature(&signature, &[0xff; PUBKEY_SERIALIZED_SIZE], message),
-        Err(ProgramError::InvalidArgument)
+        Err(Ed25519VerifyError::SignatureMismatch)
     );
 }
 
@@ -204,7 +203,7 @@ fn verify_with(
     signature: &[u8; SIGNATURE_SERIALIZED_SIZE],
     public_key: &[u8; PUBKEY_SERIALIZED_SIZE],
     message: &[u8],
-) -> Result<(), ProgramError> {
+) -> Result<(), Ed25519VerifyError> {
     Ed25519Verifier::with_criteria(criteria).verify_signature(signature, public_key, message)
 }
 
@@ -235,7 +234,7 @@ fn non_canonical_s_is_always_rejected() {
     ] {
         assert_eq!(
             verify_with(criteria, &signature, &public_key, message),
-            Err(ProgramError::InvalidArgument)
+            Err(Ed25519VerifyError::InvalidEncoding)
         );
     }
 }
@@ -269,7 +268,7 @@ fn reject_small_order_public_key_rejects_zip215_vector() {
             &SMALL_ORDER_PUBLIC_KEY_COMPRESSED,
             message
         ),
-        Err(ProgramError::InvalidArgument)
+        Err(Ed25519VerifyError::SmallOrderPublicKey)
     );
 }
 
@@ -302,7 +301,7 @@ fn reject_small_order_r_rejects_torsion_signature() {
             &SMALL_ORDER_PUBLIC_KEY_COMPRESSED,
             message
         ),
-        Err(ProgramError::InvalidArgument)
+        Err(Ed25519VerifyError::SmallOrderR)
     );
 }
 
@@ -334,7 +333,7 @@ fn require_canonical_a_rejects_non_canonical_public_key() {
             &NON_CANONICAL_SMALL_ORDER_COMPRESSED,
             message
         ),
-        Err(ProgramError::InvalidArgument)
+        Err(Ed25519VerifyError::NonCanonicalPublicKey)
     );
 }
 
@@ -366,7 +365,7 @@ fn require_canonical_r_rejects_non_canonical_r() {
             &SMALL_ORDER_PUBLIC_KEY_COMPRESSED,
             message
         ),
-        Err(ProgramError::InvalidArgument)
+        Err(Ed25519VerifyError::NonCanonicalR)
     );
 }
 
@@ -477,7 +476,7 @@ fn dalek_verify_strict_preset_rejects_zip215_small_order_key() {
             &SMALL_ORDER_PUBLIC_KEY_COMPRESSED,
             message
         ),
-        Err(ProgramError::InvalidArgument)
+        Err(Ed25519VerifyError::SmallOrderPublicKey)
     );
     assert!(!dalek_verify_strict_accepts(
         &signature,

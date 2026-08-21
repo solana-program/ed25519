@@ -2,7 +2,11 @@ use {
     ed25519_dalek::{Signer, SigningKey},
     mollusk_svm::Mollusk,
     solana_account::Account,
-    solana_ed25519_verify::{verify, PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE},
+    solana_address::Address,
+    solana_ed25519_verify::{
+        constants::{PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE},
+        verify,
+    },
     solana_instruction::{AccountMeta, Instruction},
     solana_program_runtime::{
         invoke_context::InvokeContext,
@@ -12,7 +16,6 @@ use {
             memory_region::{AccessType, MemoryMapping},
         },
     },
-    solana_pubkey::Pubkey,
     std::{env, error::Error, io, mem::size_of, path::PathBuf, slice},
 };
 
@@ -127,9 +130,9 @@ fn sbf_program_path() -> Option<String> {
     None
 }
 
-fn make_mollusk() -> Option<(Mollusk, Pubkey)> {
+fn make_mollusk() -> Option<(Mollusk, Address)> {
     let program_path = sbf_program_path()?;
-    let program_id = Pubkey::new_unique();
+    let program_id = Address::new_unique();
     let mut mollusk = Mollusk::default();
     mollusk
         .program_cache
@@ -140,7 +143,7 @@ fn make_mollusk() -> Option<(Mollusk, Pubkey)> {
     Some((mollusk, program_id))
 }
 
-fn instruction(program_id: Pubkey, data: Vec<u8>) -> Instruction {
+fn instruction(program_id: Address, data: Vec<u8>) -> Instruction {
     Instruction {
         program_id,
         accounts: vec![],
@@ -148,7 +151,7 @@ fn instruction(program_id: Pubkey, data: Vec<u8>) -> Instruction {
     }
 }
 
-fn signed_instruction(program_id: Pubkey, message: &[u8]) -> Instruction {
+fn signed_instruction(program_id: Address, message: &[u8]) -> Instruction {
     let signing_key = SigningKey::from_bytes(&[7; 32]);
     let signature = signing_key.sign(message).to_bytes();
     let public_key = signing_key.verifying_key().to_bytes();
@@ -236,7 +239,7 @@ fn rejects_accounts_on_sbf() {
     let Some((mollusk, program_id)) = make_mollusk() else {
         return;
     };
-    let account = Pubkey::new_unique();
+    let account = Address::new_unique();
     let mut ix = signed_instruction(program_id, SINGLE_MESSAGE);
     ix.accounts = vec![AccountMeta::new_readonly(account, false)];
     let accounts = [(account, Account::default())];

@@ -11,16 +11,21 @@ default = []
 
 [dependencies]
 pinocchio = { workspace = true }
-solana-ed25519-verify = { workspace = true, default-features = false }
+solana-ed25519-verify = { workspace = true, default-features = false, features = [
+    "verify",
+] }
 
 [dev-dependencies]
 ed25519-dalek = { workspace = true }
 mollusk-svm = { workspace = true }
 solana-account = { workspace = true }
-solana-ed25519-verify = { workspace = true, features = ["instruction"] }
+solana-address = { workspace = true }
+solana-ed25519-verify = { workspace = true, default-features = false, features = [
+    "verify",
+    "instruction",
+] }
 solana-instruction = { workspace = true }
 solana-program-runtime = { workspace = true }
-solana-pubkey = { workspace = true }
 solana-sha512-hasher = { workspace = true }
 
 [lints]

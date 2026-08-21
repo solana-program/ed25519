@@ -1,23 +1,18 @@
 use {
-    crate::{scalar, VerificationCriteria, PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE},
+    crate::{
+        constants::{
+            ED25519_BASEPOINT_NEGATED_COMPRESSED, EDWARDS_IDENTITY_COMPRESSED,
+            PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE,
+        },
+        error::Ed25519VerifyError,
+        points::{compute_challenge, is_small_order, multiply_by_8},
+        scalar, VerificationCriteria,
+    },
     solana_curve25519::{
-        edwards::{add_edwards, multiscalar_multiply_edwards, subtract_edwards, PodEdwardsPoint},
+        edwards::{multiscalar_multiply_edwards, subtract_edwards, PodEdwardsPoint},
         scalar::PodScalar,
     },
-    solana_program_error::ProgramError,
 };
-
-const ED25519_BASEPOINT_NEGATED_COMPRESSED: PodEdwardsPoint = PodEdwardsPoint([
-    0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-    0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0xe6,
-]);
-/// Identity point of the Edwards curve, in compressed form.
-pub(crate) const EDWARDS_IDENTITY_COMPRESSED_BYTES: [u8; PUBKEY_SERIALIZED_SIZE] = [
-    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-];
-const EDWARDS_IDENTITY_COMPRESSED: PodEdwardsPoint =
-    PodEdwardsPoint(EDWARDS_IDENTITY_COMPRESSED_BYTES);
 
 /// Stateless, zero-allocation Ed25519 verifier.
 ///
@@ -68,7 +63,7 @@ impl Ed25519Verifier {
         signature: &[u8; SIGNATURE_SERIALIZED_SIZE],
         public_key: &[u8; PUBKEY_SERIALIZED_SIZE],
         message: &[u8],
-    ) -> Result<(), ProgramError> {
+    ) -> Result<(), Ed25519VerifyError> {
         let (r_bytes, s_bytes) = signature.split_at(32);
         let r_bytes: &[u8; 32] = r_bytes.try_into().unwrap();
         let s_bytes: &[u8; 32] = s_bytes.try_into().unwrap();
@@ -76,24 +71,26 @@ impl Ed25519Verifier {
         // `require_canonical_s` is deliberately not checked because
         // `multiscalar_multiply_edwards` converts `PodScalar` through
         // `Scalar::from_canonical_bytes` and returns `None` on a non-canonical
-        // scalar, which maps to the same `InvalidArgument` below. Re-checking
-        // it in-program duplicates work the curve backend already performs.
+        // scalar, which maps to `InvalidEncoding` below. Re-checking it
+        // in-program duplicates work the curve backend already performs, and
+        // would not let us distinguish it from a malformed public key anyway
+        // (see `Ed25519VerifyError::InvalidEncoding`).
 
         if self.criteria.require_canonical_a && !scalar::is_canonical_point_encoding(public_key) {
-            return Err(ProgramError::InvalidArgument);
+            return Err(Ed25519VerifyError::NonCanonicalPublicKey);
         }
         if self.criteria.require_canonical_r && !scalar::is_canonical_point_encoding(r_bytes) {
-            return Err(ProgramError::InvalidArgument);
+            return Err(Ed25519VerifyError::NonCanonicalR);
         }
 
         let r_point = PodEdwardsPoint(*r_bytes);
         let public_key_point = PodEdwardsPoint(*public_key);
 
         if self.criteria.reject_small_order_a && is_small_order(&public_key_point)? {
-            return Err(ProgramError::InvalidArgument);
+            return Err(Ed25519VerifyError::SmallOrderPublicKey);
         }
         if self.criteria.reject_small_order_r && is_small_order(&r_point)? {
-            return Err(ProgramError::InvalidArgument);
+            return Err(Ed25519VerifyError::SmallOrderR);
         }
 
         let challenge = compute_challenge(r_bytes, public_key, message);
@@ -104,7 +101,7 @@ impl Ed25519Verifier {
             &[PodScalar(*s_bytes), PodScalar(challenge)],
             &[ED25519_BASEPOINT_NEGATED_COMPRESSED, public_key_point],
         )
-        .ok_or(ProgramError::InvalidArgument)?;
+        .ok_or(Ed25519VerifyError::InvalidEncoding)?;
 
         // Flip the sign bit back to recover the encoding of `S*B - H*A`, then
         // compare against `R` as supplied. `neg_lhs` is canonical, so the flip
@@ -121,7 +118,11 @@ impl Ed25519Verifier {
         }
 
         let lhs = PodEdwardsPoint(lhs_bytes);
-        let difference = subtract_edwards(&lhs, &r_point).ok_or(ProgramError::InvalidArgument)?;
+        // `lhs` is always a valid point by construction (see above), so a
+        // `None` here can only mean `r_point` — built directly from the
+        // caller-supplied `r_bytes` — failed to decode.
+        let difference =
+            subtract_edwards(&lhs, &r_point).ok_or(Ed25519VerifyError::InvalidEncoding)?;
 
         // An exact-identity difference satisfies both the cofactorless and the
         // cofactored equation, so accept it without the cofactor multiplication.
@@ -135,43 +136,18 @@ impl Ed25519Verifier {
         // clears to identity once multiplied by the cofactor 8 (the mixed-order
         // points that ZIP-215 tolerates).
         if !self.criteria.cofactored {
-            return Err(ProgramError::InvalidArgument);
+            return Err(Ed25519VerifyError::SignatureMismatch);
         }
-        if multiply_by_8(&difference).ok_or(ProgramError::InvalidArgument)?
+        // `difference` is a point returned by `subtract_edwards` above, so it
+        // is always a valid encoding; `multiply_by_8` failing here is not
+        // expected to be reachable in practice. `InvalidEncoding` is used
+        // defensively in case it is.
+        if multiply_by_8(&difference).ok_or(Ed25519VerifyError::InvalidEncoding)?
             != EDWARDS_IDENTITY_COMPRESSED
         {
-            return Err(ProgramError::InvalidArgument);
+            return Err(Ed25519VerifyError::SignatureMismatch);
         }
 
         Ok(())
     }
-}
-
-/// Returns `Ok(true)` if `point` decompresses to a small-order (torsion) point.
-///
-/// A point has order dividing the cofactor 8 exactly when `[8]P` is the
-/// identity. This decompresses `point` (accepting non-canonical encodings, which
-/// reduce modulo `p`). An encoding that does not decompress returns
-/// `Err(InvalidArgument)` so the caller can reject it immediately, rather than
-/// treating it as non-small-order and paying for the subsequent verification
-/// syscalls only to fail there.
-fn is_small_order(point: &PodEdwardsPoint) -> Result<bool, ProgramError> {
-    let product = multiply_by_8(point).ok_or(ProgramError::InvalidArgument)?;
-    Ok(product == EDWARDS_IDENTITY_COMPRESSED)
-}
-
-/// Multiplies `point` by the cofactor 8 via three point doublings.
-///
-/// Cheaper than a scalar multiplication by 8: three `sol_curve_group_op`
-/// additions (473 CU each, 1,419 total) versus one multiplication (2,177 CU).
-/// Returns `None` if `point` is not a valid curve encoding.
-fn multiply_by_8(point: &PodEdwardsPoint) -> Option<PodEdwardsPoint> {
-    let double = add_edwards(point, point)?;
-    let quadruple = add_edwards(&double, &double)?;
-    add_edwards(&quadruple, &quadruple)
-}
-
-fn compute_challenge(signature_r: &[u8; 32], public_key: &[u8; 32], message: &[u8]) -> [u8; 32] {
-    let digest = solana_sha512_hasher::hashv(&[signature_r, public_key, message]).to_bytes();
-    scalar::reduce_wide(&digest)
 }

@@ -11,18 +11,27 @@
 //! [`Ed25519Verifier::with_criteria`].
 
 #[cfg(feature = "instruction")]
-extern crate alloc;
-
-mod config;
-#[cfg(feature = "instruction")]
 pub mod instruction;
+
+#[cfg(feature = "instruction")]
+pub use instruction::{id, verify, ID};
+
+#[cfg(feature = "verify")]
+mod config;
+#[cfg(feature = "verify")]
+pub mod constants;
+#[cfg(feature = "verify")]
+mod error;
+#[cfg(feature = "verify")]
+mod points;
+#[cfg(feature = "verify")]
 mod scalar;
+#[cfg(feature = "verify")]
 mod verifier;
 
+#[cfg(feature = "verify")]
 pub use config::VerificationCriteria;
-#[cfg(feature = "instruction")]
-pub use instruction::verify;
+#[cfg(feature = "verify")]
+pub use error::Ed25519VerifyError;
+#[cfg(feature = "verify")]
 pub use verifier::Ed25519Verifier;
-
-pub const PUBKEY_SERIALIZED_SIZE: usize = 32;
-pub const SIGNATURE_SERIALIZED_SIZE: usize = 64;

@@ -7,21 +7,24 @@ edition = "2021"
 crate-type = ["rlib"]
 
 [features]
-default = []
+default = ["verify", "instruction"]
 # Enables the client-side constructor for invoking the standalone program.
-instruction = ["dep:solana-instruction", "dep:solana-pubkey"]
+instruction = ["dep:solana-instruction", "dep:solana-address"]
+# Enables the in-program Ed25519 signature verifier (`Ed25519Verifier`) and
+# the curve/hash syscalls it depends on.
+verify = ["dep:solana-curve25519", "dep:solana-sha512-hasher"]
 
 [dependencies]
-solana-curve25519 = { workspace = true }
+solana-curve25519 = { workspace = true, optional = true }
 solana-instruction = { workspace = true, optional = true }
-solana-program-error = { workspace = true }
-solana-pubkey = { workspace = true, optional = true }
-solana-sha512-hasher = { workspace = true }
+solana-address = { workspace = true, optional = true }
+solana-sha512-hasher = { workspace = true, optional = true }
 
 [dev-dependencies]
+curve25519-dalek = { workspace = true }
 ed25519-dalek = { workspace = true }
+solana-address = { workspace = true, features = ["atomic"] }
 solana-ed25519-verify = { path = ".", features = ["instruction"] }
-solana-pubkey = { workspace = true }
 
 [lints]
 workspace = true

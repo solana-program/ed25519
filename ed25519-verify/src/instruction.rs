@@ -1,9 +1,12 @@
+extern crate alloc;
+
 use {
-    crate::{PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE},
     alloc::{vec, vec::Vec},
+    solana_address::{declare_id, Address},
     solana_instruction::Instruction,
-    solana_pubkey::Pubkey,
 };
+
+declare_id!("ed2DNnfPh19L66ahBPivbPkf5H1nW82zWTYGMjuQk9L");
 
 /// Constructs an on-chain instruction to invoke `solana-ed25519-program`.
 ///
@@ -12,13 +15,13 @@ use {
 ///
 /// [ZIP-215]: crate::VerificationCriteria::zip215
 pub fn verify(
-    program_id: &Pubkey,
-    public_key: &[u8; PUBKEY_SERIALIZED_SIZE],
-    signature: &[u8; SIGNATURE_SERIALIZED_SIZE],
+    program_id: &Address,
+    public_key: &[u8; 32],
+    signature: &[u8; 64],
     message: &[u8],
 ) -> Instruction {
-    let mut data =
-        Vec::with_capacity(PUBKEY_SERIALIZED_SIZE + SIGNATURE_SERIALIZED_SIZE + message.len());
+    // 32 (public key) + 64 (signature) = 96 bytes ahead of the message.
+    let mut data = Vec::with_capacity(96 + message.len());
     data.extend_from_slice(public_key);
     data.extend_from_slice(signature);
     data.extend_from_slice(message);
