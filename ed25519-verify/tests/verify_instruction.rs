@@ -3,7 +3,7 @@ use {
     solana_address::Address,
     solana_ed25519_verify::{
         constants::{PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE},
-        verify, Ed25519Verifier, Ed25519VerifyError, VerificationCriteria,
+        verify, BatchItem, Ed25519Verifier, Ed25519VerifyError, VerificationCriteria,
     },
 };
 
@@ -69,7 +69,12 @@ fn verify_signature(
     public_key: &[u8; PUBKEY_SERIALIZED_SIZE],
     message: &[u8],
 ) -> Result<(), Ed25519VerifyError> {
-    Ed25519Verifier::new().verify_signature(signature, public_key, message)
+    verify_with(
+        VerificationCriteria::zip215(),
+        signature,
+        public_key,
+        message,
+    )
 }
 
 #[test]
@@ -233,7 +238,34 @@ fn verify_with(
     public_key: &[u8; PUBKEY_SERIALIZED_SIZE],
     message: &[u8],
 ) -> Result<(), Ed25519VerifyError> {
-    Ed25519Verifier::with_criteria(criteria).verify_signature(signature, public_key, message)
+    let verifier = Ed25519Verifier::with_criteria(criteria);
+    let result = verifier.verify_signature(signature, public_key, message);
+    // Reuse the existing valid, malformed, torsion, and mixed-order fixtures
+    // to check both new APIs against the individual verification result.
+    assert_eq!(
+        verifier
+            .verify_and_prepare(signature, public_key, message)
+            .and_then(|prepared| {
+                assert_eq!(prepared.as_bytes(), public_key);
+                assert_eq!(prepared.criteria(), criteria);
+                prepared.verify_signature(signature, message)
+            }),
+        result
+    );
+    assert_eq!(
+        verifier
+            .prepare_public_key(public_key)
+            .and_then(|prepared| prepared.verify_signature(signature, message))
+            .is_ok(),
+        result.is_ok()
+    );
+    let item = BatchItem {
+        signature,
+        public_key,
+        message,
+    };
+    assert_eq!(verifier.verify_batch(&[item; 33]).is_ok(), result.is_ok());
+    result
 }
 
 #[test]
@@ -553,4 +585,75 @@ fn malformed_points_remain_invalid() {
         ),
         Err(Ed25519VerifyError::InvalidEncoding)
     );
+}
+
+#[test]
+fn prepared_keys_verify_distinct_messages() {
+    for criteria in [
+        VerificationCriteria::zip215(),
+        VerificationCriteria::dalek_verify_strict(),
+    ] {
+        let (signature, mut public_key) = signed_payload(b"first");
+        let verifier = Ed25519Verifier::with_criteria(criteria);
+        let prepared = verifier
+            .verify_and_prepare(&signature, &public_key, b"first")
+            .unwrap();
+        let separately_prepared = verifier.prepare_public_key(&public_key).unwrap();
+        public_key.fill(0); // Prepared keys own their input encoding.
+        let (signature, _) = signed_payload(b"second");
+        for prepared in [prepared, separately_prepared] {
+            assert_eq!(prepared.verify_signature(&signature, b"second"), Ok(()));
+            assert!(prepared.verify_signature(&signature, b"tampered").is_err());
+        }
+    }
+}
+
+#[test]
+fn batch_boundaries_and_scalar_malleability() {
+    let mut order = (-curve25519_dalek::scalar::Scalar::ONE).to_bytes();
+    order[0] += 1;
+    for same_key in [false, true] {
+        let signing_keys: [_; 65] = core::array::from_fn(|i| {
+            SigningKey::from_bytes(&[if same_key { 7 } else { 7 + i as u8 }; 32])
+        });
+        let keys = signing_keys
+            .each_ref()
+            .map(|key| key.verifying_key().to_bytes());
+        let messages: [_; 65] = core::array::from_fn(|i| (i as u32).to_le_bytes());
+        let signatures: [_; 65] =
+            core::array::from_fn(|i| signing_keys[i].sign(&messages[i]).to_bytes());
+        let verify = |signatures: &[[u8; 64]; 65], count, criteria| {
+            let items: [_; 65] = core::array::from_fn(|i| BatchItem {
+                signature: &signatures[i],
+                public_key: &keys[i],
+                message: &messages[i],
+            });
+            Ed25519Verifier::with_criteria(criteria).verify_batch(&items[..count])
+        };
+        for count in [0, 1, 2, 3, 10, 11, 31, 32, 33, 63, 64, 65] {
+            for criteria in [
+                VerificationCriteria::zip215(),
+                VerificationCriteria::dalek_verify_strict(),
+            ] {
+                assert_eq!(verify(&signatures, count, criteria), Ok(()));
+            }
+        }
+        for index in [0, 10, 31, 32, 64] {
+            let mut bad = signatures;
+            bad[index][32] ^= 1;
+            assert!(verify(&bad, 65, VerificationCriteria::zip215()).is_err());
+            // S + L leaves the aggregate equation unchanged but must be rejected.
+            let mut bad = signatures;
+            let mut carry = 0u16;
+            for (byte, order) in bad[index][32..].iter_mut().zip(order) {
+                let sum = u16::from(*byte) + u16::from(order) + carry;
+                *byte = sum as u8;
+                carry = sum >> 8;
+            }
+            assert_eq!(
+                verify(&bad, 65, VerificationCriteria::zip215()),
+                Err(Ed25519VerifyError::InvalidEncoding)
+            );
+        }
+    }
 }

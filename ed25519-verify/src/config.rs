@@ -38,7 +38,8 @@
 /// targeting requires it — accepting `S >= L` reintroduces signature
 /// malleability — and the multiscalar-mul syscall enforces it regardless,
 /// converting scalars through `Scalar::from_canonical_bytes` and rejecting
-/// out-of-range values before any group operation runs.
+/// out-of-range values before any group operation runs. Batch verification
+/// checks each original `S` explicitly before forming weighted scalars.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VerificationCriteria {
     /// Use the cofactored verification equation
