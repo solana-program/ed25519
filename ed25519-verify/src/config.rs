@@ -55,13 +55,14 @@ pub struct VerificationCriteria {
     pub require_canonical_r: bool,
     /// Reject public keys that lie in the small-order (torsion) subgroup.
     ///
-    /// Costs one point addition to validate the input and produce a canonical
-    /// encoding, followed by a torsion lookup, when enabled.
+    /// Checks the compressed encoding, including non-canonical aliases.
+    /// Point validity is enforced by the curve operations during verification.
     pub reject_small_order_a: bool,
     /// Reject signature `R` values that lie in the small-order subgroup.
     ///
-    /// Costs one point addition to validate the input and produce a canonical
-    /// encoding, followed by a torsion lookup, when enabled.
+    /// Checks the compressed encoding, including non-canonical aliases.
+    /// Point validity is enforced by the verification equation or, on a byte
+    /// mismatch, a curve operation.
     pub reject_small_order_r: bool,
 }
 

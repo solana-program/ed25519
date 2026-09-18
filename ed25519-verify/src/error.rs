@@ -28,10 +28,10 @@ pub enum Ed25519VerifyError {
     ///
     /// [`reject_small_order_r`]: crate::VerificationCriteria::reject_small_order_r
     SmallOrderR,
-    /// The public key does not decode to a valid Edwards curve point, or the
-    /// signature's `S` scalar is not canonical (`S >= L`).
+    /// The public key or signature's `R` does not decode to a valid Edwards
+    /// curve point, or the signature's `S` scalar is not canonical (`S >= L`).
     ///
-    /// These two causes are not distinguished: the syscall that consumes both
+    /// Invalid `A` and `S` are not distinguished: the syscall that consumes both
     /// reports only overall success or failure. Telling them apart would mean an
     /// explicit `S < L` comparison, or decoding `A` ahead of the syscall — compute
     /// units spent on every signature for precision that only helps malformed input.

@@ -523,3 +523,34 @@ fn dalek_verify_strict_preset_rejects_zip215_small_order_key() {
         message
     ));
 }
+
+#[test]
+fn malformed_points_remain_invalid() {
+    let (signature, public_key) = signed_payload(b"invalid point regression");
+    let mut invalid = [0; 32];
+    invalid[0] = 2; // Does not decompress.
+    let mut invalid_r = signature;
+    invalid_r[..32].copy_from_slice(&invalid);
+    for criteria in [
+        VerificationCriteria::zip215(),
+        VerificationCriteria::dalek_verify_strict(),
+    ] {
+        for (signature, key) in [(&signature, &invalid), (&invalid_r, &public_key)] {
+            assert_eq!(
+                verify_with(criteria, signature, key, b"invalid point regression"),
+                Err(Ed25519VerifyError::InvalidEncoding)
+            );
+        }
+    }
+    // Strict mode must validate A before rejecting a small-order R.
+    invalid_r[..32].copy_from_slice(&EDWARDS_IDENTITY_COMPRESSED);
+    assert_eq!(
+        verify_with(
+            VerificationCriteria::dalek_verify_strict(),
+            &invalid_r,
+            &invalid,
+            b"invalid point regression"
+        ),
+        Err(Ed25519VerifyError::InvalidEncoding)
+    );
+}
