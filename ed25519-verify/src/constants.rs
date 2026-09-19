@@ -21,7 +21,7 @@ pub(crate) const BASEPOINT_ORDER: [u8; 32] = [
 ///
 /// Evaluated at compile time so that limb constants are derived from their byte
 /// counterparts rather than transcribed by hand a second time.
-const fn to_le_limbs(bytes: [u8; 32]) -> [u64; 4] {
+pub(crate) const fn to_le_limbs(bytes: [u8; 32]) -> [u64; 4] {
     let mut limbs = [0u64; 4];
     let mut limb_index = 0;
 

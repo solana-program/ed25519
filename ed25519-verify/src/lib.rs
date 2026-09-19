@@ -1,10 +1,14 @@
 #![no_std]
 
-//! Stateless Ed25519 verification utilities for Solana programs.
+//! Ed25519 verification utilities for Solana programs.
 //!
 //! This crate contains the reusable verifier used by
 //! `solana-ed25519-program`. Programs can also depend on it directly to verify
 //! Ed25519 signatures without invoking the standalone verifier program.
+//! [`PreparedPublicKey`] reuses public-key validation and syscall inputs when
+//! verifying multiple signatures with the same key and criteria.
+//! [`Ed25519Verifier::verify_batch`] aggregates cofactored signatures using
+//! transcript-derived weights to reduce the cost of larger batches.
 //!
 //! By default the verifier performs ZIP-215 verification with canonical `S`.
 //! The variant can be selected via [`VerificationCriteria`] and
@@ -16,6 +20,8 @@ pub mod instruction;
 #[cfg(feature = "instruction")]
 pub use instruction::{id, verify, ID};
 
+#[cfg(feature = "verify")]
+mod batch;
 #[cfg(feature = "verify")]
 mod config;
 #[cfg(feature = "verify")]
@@ -30,8 +36,10 @@ mod scalar;
 mod verifier;
 
 #[cfg(feature = "verify")]
+pub use batch::BatchItem;
+#[cfg(feature = "verify")]
 pub use config::VerificationCriteria;
 #[cfg(feature = "verify")]
 pub use error::Ed25519VerifyError;
 #[cfg(feature = "verify")]
-pub use verifier::Ed25519Verifier;
+pub use verifier::{Ed25519Verifier, PreparedPublicKey};
