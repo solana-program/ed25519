@@ -21,6 +21,7 @@ pub(crate) fn is_canonical_point_encoding(encoding: &[u8; 32]) -> bool {
 /// Uses radix `2^21` limbs and the relation `2^252 = -c (mod L)`, where
 /// `L = 2^252 + c`. After folding, `-L < r < L`; adding `L` when `r` is
 /// negative produces a canonical scalar.
+/// This variable-time helper only handles public verification challenges.
 pub(crate) fn reduce_wide_into(wide: &[u8; 64], reduced: &mut [u8; 32]) {
     #[inline(always)]
     fn fold(limbs: &mut [i64; 24], index: usize) {
@@ -34,14 +35,19 @@ pub(crate) fn reduce_wide_into(wide: &[u8; 64], reduced: &mut [u8; 32]) {
         }
     }
 
-    let mut limbs = [0i64; 24];
-    for (i, limb) in limbs.iter_mut().enumerate().take(23) {
-        let bit = i * 21;
-        let byte = bit / 8;
-        let word = u32::from_le_bytes(wide[byte..byte + 4].try_into().unwrap());
-        *limb = i64::from((word >> (bit % 8)) & 0x1f_ffff);
-    }
-    limbs[23] = i64::from(u32::from_le_bytes(wide[60..64].try_into().unwrap()) >> 3);
+    // Initialize every limb at once so the SBF compiler can unroll decoding
+    // without zeroing a temporary array. Keep the wider top limb here too.
+    let mut limbs: [i64; 24] = core::array::from_fn(|i| {
+        if i == 23 {
+            // The top limb contains the remaining 29 bits.
+            i64::from(u32::from_le_bytes(wide[60..64].try_into().unwrap()) >> 3)
+        } else {
+            let bit = i * 21;
+            let byte = bit / 8;
+            let word = u32::from_le_bytes(wide[byte..byte + 4].try_into().unwrap());
+            i64::from((word >> (bit % 8)) & 0x1f_ffff)
+        }
+    });
 
     // Fold the highest six limbs before propagating their carries.
     fold(&mut limbs, 23);
@@ -51,9 +57,10 @@ pub(crate) fn reduce_wide_into(wide: &[u8; 64], reduced: &mut [u8; 32]) {
     fold(&mut limbs, 19);
     fold(&mut limbs, 18);
 
-    // Normalize through limb 16 before folding limb 17.
-    // Stop before limb 18, which has already been folded.
-    for i in 6..17 {
+    // Normalize limbs 7..16 before the next folds. Limb 6 can wait for the
+    // full carry pass below; every folding intermediate stays below 2^49
+    // in magnitude without carrying it here.
+    for i in 7..17 {
         let carry = limbs[i] >> 21;
         limbs[i] &= 0x1f_ffff;
         limbs[i + 1] += carry;
@@ -76,14 +83,29 @@ pub(crate) fn reduce_wide_into(wide: &[u8; 64], reduced: &mut [u8; 32]) {
     // a value below 2^252. Folding once more gives -28*c <= r < L.
     // Since 28*c < L, a negative remainder needs exactly one addition of L.
     fold(&mut limbs, 12);
-    for i in 0..11 {
+    for i in 0..5 {
         let carry = limbs[i] >> 21;
         limbs[i] &= 0x1f_ffff;
         limbs[i + 1] += carry;
     }
 
-    // Pack r modulo 2^256. The top limb retains the sign of r.
-    let mut remainder = [
+    let carry = limbs[5] >> 21;
+    limbs[5] &= 0x1f_ffff;
+
+    // The upper six limbs are still normalized. Pack their 126 bits and add
+    // the carry once instead of propagating through five more radix-2^21
+    // limbs. The carry is in [-10, 1], so upper is in [-10, 2^126] and fits
+    // in i128. Signed shifts below preserve a negative remainder's sign.
+    let upper = (i128::from(limbs[6])
+        | (i128::from(limbs[7]) << 21)
+        | (i128::from(limbs[8]) << 42)
+        | (i128::from(limbs[9]) << 63)
+        | (i128::from(limbs[10]) << 84)
+        | (i128::from(limbs[11]) << 105))
+        + i128::from(carry);
+
+    // Pack r modulo 2^256. The top word retains the sign of r.
+    let remainder = [
         (limbs[0] as u64)
             | ((limbs[1] as u64) << 21)
             | ((limbs[2] as u64) << 42)
@@ -91,22 +113,36 @@ pub(crate) fn reduce_wide_into(wide: &[u8; 64], reduced: &mut [u8; 32]) {
         ((limbs[3] as u64) >> 1)
             | ((limbs[4] as u64) << 20)
             | ((limbs[5] as u64) << 41)
-            | ((limbs[6] as u64) << 62),
-        ((limbs[6] as u64) >> 2)
-            | ((limbs[7] as u64) << 19)
-            | ((limbs[8] as u64) << 40)
-            | ((limbs[9] as u64) << 61),
-        ((limbs[9] as u64) >> 3) | ((limbs[10] as u64) << 18) | ((limbs[11] as u64) << 39),
+            | ((upper as u64) << 62),
+        (upper >> 2) as u64,
+        (upper >> 66) as u64,
     ];
 
-    let mask = 0u64.wrapping_sub(remainder[3] >> 63);
-    let mut carry = 0u64;
-    for i in 0..4 {
-        let (partial, carry_from_order) =
-            remainder[i].overflowing_add(BASEPOINT_ORDER_LIMBS[i] & mask);
-        let (limb, carry_from_carry) = partial.overflowing_add(carry);
-        remainder[i] = limb;
-        carry = u64::from(carry_from_order | carry_from_carry);
+    // Keep the uncommon correction out of the normal path. Passing words by
+    // value avoids materializing a temporary array for the SBF call.
+    #[cold]
+    fn add_order_and_store(r0: u64, r1: u64, r2: u64, r3: u64, reduced: &mut [u8; 32]) {
+        let mut carry = 0u64;
+        for ((chunk, limb), order) in reduced
+            .chunks_exact_mut(8)
+            .zip([r0, r1, r2, r3])
+            .zip(BASEPOINT_ORDER_LIMBS)
+        {
+            // Every order limb is below u64::MAX, so order + carry fits.
+            let (limb, overflow) = limb.overflowing_add(order + carry);
+            chunk.copy_from_slice(&limb.to_le_bytes());
+            carry = u64::from(overflow);
+        }
+    }
+    if (remainder[3] as i64) < 0 {
+        add_order_and_store(
+            remainder[0],
+            remainder[1],
+            remainder[2],
+            remainder[3],
+            reduced,
+        );
+        return;
     }
 
     for (chunk, limb) in reduced.chunks_exact_mut(8).zip(remainder) {
@@ -166,8 +202,8 @@ mod tests {
         assert_eq!(reduce_wide(&wide_from_low_32(&order_plus_one)), one);
     }
 
-    // `reduce_wide` is hand-rolled modular arithmetic with a branch-free carry
-    // chain, so it is cross-checked against curve25519-dalek's own wide
+    // `reduce_wide` is hand-rolled modular arithmetic with a conditional final
+    // correction, so it is cross-checked against curve25519-dalek's own wide
     // reduction rather than against a second copy of the same reasoning.
     #[test]
     fn matches_curve25519_dalek_wide_reduction() {
@@ -234,8 +270,32 @@ mod tests {
 
         // L * 2^shift and its neighbors, through the highest fitting shift.
         let mut shifted_order = wide_from_low_32(&BASEPOINT_ORDER);
-        for _ in 0..=259 {
+        for shift in 0..=259 {
             check_neighbors(shifted_order);
+
+            // Exercise both carry directions at packed-word boundaries near
+            // multiples of L, where random inputs rarely reach negative r.
+            if [0, 64, 126, 127, 128, 252, 259].contains(&shift) {
+                for bit in [0, 63, 64, 125, 126, 127, 128, 189, 190, 191, 192, 251, 252] {
+                    for subtract in [false, true] {
+                        let mut boundary = shifted_order;
+                        let mut carry = 1u8 << (bit % 8);
+                        for byte in &mut boundary[bit / 8..] {
+                            let (value, next) = if subtract {
+                                byte.overflowing_sub(carry)
+                            } else {
+                                byte.overflowing_add(carry)
+                            };
+                            *byte = value;
+                            carry = u8::from(next);
+                            if carry == 0 {
+                                break;
+                            }
+                        }
+                        check_neighbors(boundary);
+                    }
+                }
+            }
 
             let mut carry = 0u8;
             for byte in &mut shifted_order {
