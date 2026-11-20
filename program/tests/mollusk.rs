@@ -9,15 +9,7 @@ use {
         verify,
     },
     solana_instruction::{AccountMeta, Instruction},
-    solana_program_runtime::{
-        invoke_context::InvokeContext,
-        solana_sbpf::{
-            declare_builtin_function,
-            error::ProgramResult as SbpfProgramResult,
-            memory_region::{AccessType, MemoryMapping},
-        },
-    },
-    std::{env, error::Error, io, mem::size_of, path::PathBuf, slice},
+    std::{env, path::PathBuf},
 };
 
 const PROGRAM_SO_STEM: &str = "solana_ed25519_program";
@@ -33,94 +25,6 @@ const SMALL_ORDER_PUBLIC_KEY_COMPRESSED: [u8; PUBKEY_SERIALIZED_SIZE] = [
     0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f,
 ];
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct VmSlice {
-    ptr: u64,
-    len: u64,
-}
-
-declare_builtin_function!(
-    /// Local SHA-512 syscall shim for runtimes that have not published `sol_sha512` yet.
-    ///
-    /// Remove this shim and the manual registration below once `sol_sha512` is
-    /// live on mainnet and available in the local Agave/Mollusk runtime.
-    SyscallSha512,
-    fn rust(
-        invoke_context: &mut InvokeContext,
-        vals_addr: u64,
-        vals_len: u64,
-        result_addr: u64,
-        _arg4: u64,
-        _arg5: u64,
-        memory_mapping: &mut MemoryMapping,
-    ) -> Result<u64, Box<dyn Error>> {
-        let compute_cost = *invoke_context.get_execution_cost();
-        invoke_context.consume_checked(compute_cost.sha256_base_cost)?;
-
-        let vals =
-            translate_slice::<VmSlice>(memory_mapping, vals_addr, vals_len, AccessType::Load)?
-                .to_vec();
-        let mut hasher = solana_sha512_hasher::Hasher::default();
-        for val in &vals {
-            let bytes = translate_slice::<u8>(memory_mapping, val.ptr, val.len, AccessType::Load)?;
-            let byte_cost = compute_cost
-                .sha256_byte_cost
-                .saturating_mul(val.len / 2);
-            invoke_context.consume_checked(compute_cost.mem_op_base_cost.max(byte_cost))?;
-            hasher.hash(bytes);
-        }
-
-        let output = translate_slice_mut::<u8>(memory_mapping, result_addr, 64)?;
-        output.copy_from_slice(hasher.result().as_ref());
-        Ok(0)
-    }
-);
-
-fn translate_slice<T>(
-    memory_mapping: &mut MemoryMapping,
-    vm_addr: u64,
-    len: u64,
-    access_type: AccessType,
-) -> Result<&[T], Box<dyn Error>> {
-    let byte_len = mapped_byte_len::<T>(len)?;
-    let host_addr = map(memory_mapping, access_type, vm_addr, byte_len)?;
-    let len = usize::try_from(len).map_err(|_| length_error())?;
-    Ok(unsafe { slice::from_raw_parts(host_addr as *const T, len) })
-}
-
-fn translate_slice_mut<T>(
-    memory_mapping: &mut MemoryMapping,
-    vm_addr: u64,
-    len: u64,
-) -> Result<&mut [T], Box<dyn Error>> {
-    let byte_len = mapped_byte_len::<T>(len)?;
-    let host_addr = map(memory_mapping, AccessType::Store, vm_addr, byte_len)?;
-    let len = usize::try_from(len).map_err(|_| length_error())?;
-    Ok(unsafe { slice::from_raw_parts_mut(host_addr as *mut T, len) })
-}
-
-fn mapped_byte_len<T>(len: u64) -> Result<u64, Box<dyn Error>> {
-    len.checked_mul(size_of::<T>() as u64)
-        .ok_or_else(|| length_error().into())
-}
-
-fn map(
-    memory_mapping: &mut MemoryMapping,
-    access_type: AccessType,
-    vm_addr: u64,
-    len: u64,
-) -> Result<u64, Box<dyn Error>> {
-    match memory_mapping.map_with_access_violation_handler(access_type, vm_addr, len) {
-        SbpfProgramResult::Ok(host_addr) => Ok(host_addr),
-        SbpfProgramResult::Err(err) => Err(err.into()),
-    }
-}
-
-fn length_error() -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidInput, "invalid VM slice length")
-}
 
 fn sbf_program_path() -> Option<String> {
     if let Some(out_dir) = env::var_os("SBF_OUT_DIR") {
@@ -142,11 +46,6 @@ fn make_mollusk() -> Option<(Mollusk, Address)> {
     let program_path = sbf_program_path()?;
     let program_id = Address::new_unique();
     let mut mollusk = Mollusk::default();
-    mollusk
-        .program_cache
-        .program_runtime_environment
-        .register_function("sol_sha512", SyscallSha512::vm)
-        .expect("register sol_sha512 test syscall");
     mollusk.add_program(&program_id, &program_path);
     Some((mollusk, program_id))
 }

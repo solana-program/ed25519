@@ -127,7 +127,12 @@ mod tests {
         // than the shift loop in `to_le_limbs`, so the two directions are not
         // the same code checked against itself.
         let mut bytes = [0u8; 32];
-        for (chunk, limb) in bytes.chunks_exact_mut(8).zip(BASEPOINT_ORDER_LIMBS) {
+        for (chunk, limb) in bytes
+            .as_chunks_mut::<8>()
+            .0
+            .iter_mut()
+            .zip(BASEPOINT_ORDER_LIMBS)
+        {
             chunk.copy_from_slice(&limb.to_le_bytes());
         }
 

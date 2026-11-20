@@ -124,7 +124,9 @@ pub(crate) fn reduce_wide_into(wide: &[u8; 64], reduced: &mut [u8; 32]) {
     fn add_order_and_store(r0: u64, r1: u64, r2: u64, r3: u64, reduced: &mut [u8; 32]) {
         let mut carry = 0u64;
         for ((chunk, limb), order) in reduced
-            .chunks_exact_mut(8)
+            .as_chunks_mut::<8>()
+            .0
+            .iter_mut()
             .zip([r0, r1, r2, r3])
             .zip(BASEPOINT_ORDER_LIMBS)
         {
@@ -145,7 +147,7 @@ pub(crate) fn reduce_wide_into(wide: &[u8; 64], reduced: &mut [u8; 32]) {
         return;
     }
 
-    for (chunk, limb) in reduced.chunks_exact_mut(8).zip(remainder) {
+    for (chunk, limb) in reduced.as_chunks_mut::<8>().0.iter_mut().zip(remainder) {
         chunk.copy_from_slice(&limb.to_le_bytes());
     }
 }
@@ -309,7 +311,7 @@ mod tests {
         let mut state = 0x9e37_79b9_7f4a_7c15u64;
         for _ in 0..4096 {
             let mut wide = [0u8; 64];
-            for chunk in wide.chunks_exact_mut(8) {
+            for chunk in wide.as_chunks_mut::<8>().0 {
                 state ^= state << 13;
                 state ^= state >> 7;
                 state ^= state << 17;

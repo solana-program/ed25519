@@ -25,9 +25,8 @@ succeeded.
 | `sol_curve_validate_point`  | Selected malformed-input checks                                                                  |
 | `sol_curve_multiscalar_mul` | Fixed two-term wrapper for individual verification                                                |
 
-The benchmark's published Mollusk/Agave runtime does not register `sol_sha512`,
-so the tests install a metered shim using `solana-sha512-hasher`. Deployment
-requires a VM that enables the SHA-512 syscall.
+Deployment requires a VM that enables the SHA-512 syscall (SIMD-0512). Mollusk
+enables it by default, so the tests use the runtime's own `sol_sha512`.
 
 ## Instruction format
 
