@@ -25,8 +25,6 @@ solana-ed25519-verify = { workspace = true, default-features = false, features =
     "instruction",
 ] }
 solana-instruction = { workspace = true }
-solana-program-runtime = { workspace = true }
-solana-sha512-hasher = { workspace = true }
 
 [lints]
 workspace = true
